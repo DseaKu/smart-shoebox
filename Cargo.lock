@@ -1554,6 +1554,7 @@ dependencies = [
  "ollama-rs",
  "pdf-extract",
  "regex",
+ "schemars",
  "serde",
  "serde_json",
  "serde_yaml_ng",

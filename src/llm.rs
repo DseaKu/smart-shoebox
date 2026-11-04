@@ -3,12 +3,14 @@ use ollama_rs::{
     Ollama,
     generation::{
         chat::{ChatMessage, request::ChatMessageRequest},
-        parameters::FormatType,
+        parameters::{FormatType, JsonStructure},
     },
+    error::OllamaError,
     models::ModelOptions,
 };
+use schemars::JsonSchema;
 
-/// The local Ollama model, set up from `config.yaml`.
+/// The local Ollama model, set up from the box's `shoebox.yaml`.
 pub struct Llm {
     ollama: Ollama,
     model: String,
@@ -26,15 +28,18 @@ impl Llm {
 
     /// Sends one chat request with the given role and returns the reply.
     pub async fn ask(&self, role: &str, message: &str) -> Res<String> {
-        self.send(role, message, false).await
+        self.send(role, message, None).await
     }
 
-    /// Like `ask`, but Ollama constrains the reply to valid JSON.
-    pub async fn ask_json(&self, role: &str, message: &str) -> Res<String> {
-        self.send(role, message, true).await
+    /// Like `ask`, but Ollama forces the reply into the JSON structure of `T`.
+    /// That is much stricter than plain JSON mode, so small models are less
+    /// likely to drift or get stuck repeating themselves.
+    pub async fn ask_structured<T: JsonSchema>(&self, role: &str, message: &str) -> Res<String> {
+        let format = FormatType::StructuredJson(Box::new(JsonStructure::new::<T>()));
+        self.send(role, message, Some(format)).await
     }
 
-    async fn send(&self, role: &str, message: &str, json: bool) -> Res<String> {
+    async fn send(&self, role: &str, message: &str, format: Option<FormatType>) -> Res<String> {
         let mut request = ChatMessageRequest::new(
             self.model.clone(),
             vec![
@@ -44,15 +49,26 @@ impl Llm {
         )
         .options(ModelOptions::default().num_ctx(self.context_size))
         .think(false);
-        if json {
-            request = request.format(FormatType::Json);
+        if let Some(format) = format {
+            request = request.format(format);
         }
         let response = self
             .ollama
             .send_chat_messages(request)
             .await
-            .map_err(|e| format!("Ollama request failed (is `ollama serve` running?): {e}"))?;
+            .map_err(|e| describe_error(&e))?;
         Ok(strip_thinking(&response.message.content).to_string())
+    }
+}
+
+/// Suggests starting Ollama only when it really cannot be reached; other errors
+/// (e.g. the model aborting its answer) are shown as they are.
+fn describe_error(e: &OllamaError) -> String {
+    match e {
+        OllamaError::ReqwestError(r) if r.is_connect() || r.is_timeout() => {
+            format!("cannot reach Ollama ({r}). Is `ollama serve` running?")
+        }
+        _ => format!("Ollama request failed: {e}"),
     }
 }
 

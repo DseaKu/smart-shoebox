@@ -9,6 +9,7 @@ use crate::{
     pdf::{self, TempFile},
     pdfdoc, prompt, roles,
 };
+use schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::Path;
@@ -16,7 +17,7 @@ use std::path::Path;
 /// Pages that belong together (one letter, notice, …), in reading order.
 /// The AI groups pages because that makes ordering easier; the output is still one PDF
 /// with the groups one after another.
-#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[derive(Deserialize, JsonSchema, Clone, Debug, PartialEq)]
 pub struct Group {
     #[serde(default)]
     pub title: String,
@@ -26,7 +27,7 @@ pub struct Group {
     pub missing: Vec<u32>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, JsonSchema)]
 struct Plan {
     documents: Vec<Group>,
 }
@@ -134,24 +135,27 @@ fn order_by_printed_numbers(groups: &mut [Group], pages: &[Page]) {
 }
 
 /// Asks the model for a plan; retries once with the error, then falls back to
-/// scan order so the work is never lost.
+/// scan order so the work is never lost. The printed page numbers still order
+/// the pages afterwards, so the fallback usually gives a good result too.
 async fn ask_for_groups(llm: &Llm, pages: &[Page], content: &[u32]) -> Res<Vec<Group>> {
     let message = describe(pages, content.len());
-    let answer = llm.ask_json(roles::SORTER, &message).await?;
-    let error = match parse_plan(&answer, content) {
+    let (answer, error) = match attempt(llm, &message, content).await {
         Ok(groups) => return Ok(groups),
-        Err(e) => e,
+        Err(failure) => failure,
     };
 
-    eprintln!("The model's sorting was invalid ({error}), asking again…");
-    let retry = format!(
-        "{message}\n\nYour previous answer was invalid: {error}\nPrevious answer: {answer}\nAnswer again with valid JSON."
-    );
-    let answer = llm.ask_json(roles::SORTER, &retry).await?;
-    match parse_plan(&answer, content) {
+    eprintln!("The model's sorting failed ({error}), asking again…");
+    let retry = if answer.is_empty() {
+        format!("{message}\n\nYour previous answer failed: {error}\nAnswer again, briefly, with valid JSON.")
+    } else {
+        format!(
+            "{message}\n\nYour previous answer was invalid: {error}\nPrevious answer: {answer}\nAnswer again with valid JSON."
+        )
+    };
+    match attempt(llm, &retry, content).await {
         Ok(groups) => Ok(groups),
-        Err(e) => {
-            eprintln!("Still invalid ({e}). Using scan order; you can edit it.");
+        Err((_, e)) => {
+            eprintln!("Still failing ({e}). Using scan order, ordered by printed page numbers; you can edit it.");
             Ok(vec![Group {
                 title: String::new(),
                 pages: content.to_vec(),
@@ -159,6 +163,17 @@ async fn ask_for_groups(llm: &Llm, pages: &[Page], content: &[u32]) -> Res<Vec<G
             }])
         }
     }
+}
+
+/// One request. On failure returns the answer (empty if there was none) and why.
+/// An answer the model aborted, e.g. because it got stuck repeating itself,
+/// counts as an invalid answer instead of ending the whole run.
+async fn attempt(llm: &Llm, message: &str, content: &[u32]) -> Result<Vec<Group>, (String, String)> {
+    let answer = llm
+        .ask_structured::<Plan>(roles::SORTER, message)
+        .await
+        .map_err(|e| (String::new(), e.to_string()))?;
+    parse_plan(&answer, content).map_err(|e| (answer, e))
 }
 
 /// The non-blank pages as the model sees them.
@@ -290,6 +305,13 @@ mod tests {
         assert_eq!(pages[1].duplicate_of, Some(1));
         assert_eq!(final_order(&[group(&[1])], &pages, false), [1, 3]);
         assert_eq!(final_order(&[group(&[1, 2])], &pages, false), [1, 2, 3]);
+    }
+
+    #[test]
+    fn schema_for_the_model_has_only_the_answer_fields() {
+        let schema = serde_json::to_string(&schemars::schema_for!(Plan)).unwrap();
+        assert!(schema.contains("documents") && schema.contains("pages") && schema.contains("title"));
+        assert!(!schema.contains("missing"), "internal field leaked into the schema: {schema}");
     }
 
     #[test]
