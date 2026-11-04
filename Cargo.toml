@@ -1,0 +1,19 @@
+[package]
+name = "smart-shoebox"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lopdf = "0.42"
+ollama-rs = "0.3.6"
+pdf-extract = "0.12.1"
+regex = "1.13.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+serde_yaml_ng = "0.10.0"
+sha2 = "0.11.1"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
+
+[[bin]]
+name = "shoebox"
+path = "src/main.rs"

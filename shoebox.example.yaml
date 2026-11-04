@@ -1,0 +1,11 @@
+# Smart Shoebox settings. `shoebox init` copies this file into a new box as shoebox.yaml.
+
+# Ollama model used for all AI steps. Must be pulled first: ollama pull <model>
+model: qwen3:8b
+
+# Context window in tokens. Long documents are cut off silently if this is too small.
+# More context needs more RAM; 16384 is enough for roughly 10 pages of text.
+context_size: 16384
+
+# Tesseract language(s) for OCR of scanned PDFs, e.g. deu or deu+eng.
+ocr_language: deu

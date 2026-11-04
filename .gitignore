@@ -1,0 +1,15 @@
+/target
+
+# Private documents: never commit PDFs, in any folder, any case (.pdf, .PDF, ...)
+*.[pP][dD][fF]
+
+# Local and OS clutter
+.DS_Store
+*.part
+
+# User space: my documents, index and settings. Never committed.
+/box/
+# Also anywhere else, in case a box is created in another folder.
+store/
+index.tsv
+shoebox.yaml
