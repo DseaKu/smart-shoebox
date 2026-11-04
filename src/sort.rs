@@ -4,7 +4,7 @@
 use crate::{
     Res,
     config::Config,
-    llm::Llm,
+    llm::Model,
     pages::{self, Page},
     pdfdoc, prompt, roles,
     scan::Scan,
@@ -37,6 +37,7 @@ struct Plan {
 /// or left out with `delete_blank`). Returns the written file, or `None` if I said no.
 pub async fn run(
     config: &Config,
+    llm: &impl Model,
     input: &Path,
     out: Option<&Path>,
     delete_blank: bool,
@@ -55,9 +56,8 @@ pub async fn run(
         return Err("no text found on any page".into());
     }
 
-    eprintln!("Asking {} to sort {} pages…", config.model, content.len());
-    let llm = Llm::new(config);
-    let mut groups = ask_for_groups(&llm, pages, &content).await?;
+    eprintln!("Asking {} to sort {} pages…", llm.name(), content.len());
+    let mut groups = ask_for_groups(llm, pages, &content).await?;
     // The AI decides which pages belong together; printed page numbers decide
     // the order, because small models are unreliable at ordering by them.
     order_by_printed_numbers(&mut groups, pages);
@@ -147,7 +147,7 @@ fn order_by_printed_numbers(groups: &mut [Group], pages: &[Page]) {
 /// Asks the model for a plan; retries once with the error, then falls back to
 /// scan order so the work is never lost. The printed page numbers still order
 /// the pages afterwards, so the fallback usually gives a good result too.
-async fn ask_for_groups(llm: &Llm, pages: &[Page], content: &[u32]) -> Res<Vec<Group>> {
+async fn ask_for_groups(llm: &impl Model, pages: &[Page], content: &[u32]) -> Res<Vec<Group>> {
     let message = describe(pages, content.len());
     let (answer, error) = match attempt(llm, &message, content).await {
         Ok(groups) => return Ok(groups),
@@ -178,7 +178,7 @@ async fn ask_for_groups(llm: &Llm, pages: &[Page], content: &[u32]) -> Res<Vec<G
 /// One request. On failure returns the answer (empty if there was none) and why.
 /// An answer the model aborted, e.g. because it got stuck repeating itself,
 /// counts as an invalid answer instead of ending the whole run.
-async fn attempt(llm: &Llm, message: &str, content: &[u32]) -> Result<Vec<Group>, (String, String)> {
+async fn attempt(llm: &impl Model, message: &str, content: &[u32]) -> Result<Vec<Group>, (String, String)> {
     let answer = llm
         .ask_structured::<Plan>(roles::SORTER, message)
         .await

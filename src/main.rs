@@ -21,7 +21,13 @@ mod store;
 mod trash;
 mod workspace;
 
+#[cfg(test)]
+mod flows;
+#[cfg(test)]
+mod testutil;
+
 use clap::{Parser, Subcommand};
+use llm::Llm;
 use std::path::PathBuf;
 use std::process::exit;
 use workspace::Workspace;
@@ -115,11 +121,12 @@ enum Command {
     },
 }
 
-/// Finds the box and loads its settings.
-fn open_box() -> Res<(Workspace, config::Config)> {
+/// Finds the box, loads its settings and sets up the model from them.
+fn open_box() -> Res<(Workspace, config::Config, Llm)> {
     let ws = Workspace::locate()?;
     let config = config::load(&ws.config_path())?;
-    Ok((ws, config))
+    let llm = Llm::new(&config);
+    Ok((ws, config, llm))
 }
 
 #[tokio::main]
@@ -146,29 +153,29 @@ async fn run(command: Command) -> Res<()> {
             Ok(())
         }
         Command::Add { file } => {
-            let (ws, config) = open_box()?;
-            commands::add(&config, &ws, &file).await
+            let (ws, config, llm) = open_box()?;
+            commands::add(&config, &ws, &llm, &file).await
         }
         Command::Find { question, to } => {
-            let (ws, config) = open_box()?;
-            commands::find(&config, &ws, &question.join(" "), to.as_deref()).await
+            let (ws, config, llm) = open_box()?;
+            commands::find(&config, &ws, &llm, &question.join(" "), to.as_deref()).await
         }
         Command::Name { files } => {
-            let (ws, config) = open_box()?;
-            rename::run(&config, &ws, &files).await
+            let (ws, config, llm) = open_box()?;
+            rename::run(&config, &ws, &llm, &files).await
         }
         Command::Merge { files, out } => commands::merge(&files, out.as_deref()),
         Command::Sort { file, out, delete_blank } => {
-            let (_ws, config) = open_box()?;
-            sort::run(&config, &file, out.as_deref(), delete_blank).await.map(|_| ())
+            let (_ws, config, llm) = open_box()?;
+            sort::run(&config, &llm, &file, out.as_deref(), delete_blank).await.map(|_| ())
         }
         Command::Check { file, search_in } => {
-            let (ws, config) = open_box()?;
-            complete::check(&config, &ws, &file, search_in.as_deref()).await
+            let (ws, config, llm) = open_box()?;
+            complete::check(&config, &ws, &llm, &file, search_in.as_deref()).await
         }
         Command::Counterpart { file, search_in } => {
-            let (_ws, config) = open_box()?;
-            complete::counterpart(&config, &file, search_in.as_deref()).await
+            let (_ws, config, llm) = open_box()?;
+            complete::counterpart(&config, &llm, &file, search_in.as_deref()).await
         }
     }
 }

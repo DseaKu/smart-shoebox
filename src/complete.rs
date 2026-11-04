@@ -5,7 +5,7 @@
 //! (contract numbers, customer numbers, dates) are reliable and fast to compare.
 
 use crate::{
-    Res, config::Config, hash, index, naming, pages::Page, pdf::TempFile, pdfdoc, prompt, rename,
+    Res, config::Config, hash, index, llm::Model, naming, pages::Page, pdf::TempFile, pdfdoc, prompt, rename,
     scan::Scan, sort, store, trash, workspace::Workspace,
 };
 use regex::Regex;
@@ -69,6 +69,7 @@ pub fn completeness(pages: &[Page]) -> Report {
 pub async fn check(
     config: &Config,
     ws: &Workspace,
+    llm: &impl Model,
     file: &Path,
     search_in: Option<&Path>,
 ) -> Res<()> {
@@ -93,7 +94,7 @@ pub async fn check(
     let mut current = file.to_path_buf();
     if report.is_incomplete()
         && prompt::ask_yes_no("Search for the counterpart? [y]es / [n]o: ")?
-        && let Some(result) = find_counterpart(config, file, &scan, &report, search_in).await?
+        && let Some(result) = find_counterpart(config, llm, file, &scan, &report, search_in).await?
     {
         current = result;
     }
@@ -105,7 +106,7 @@ pub async fn check(
         let text = (current == file).then(|| {
             scan.pages.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("\n")
         });
-        rename::name_file(config, ws, &current, text.as_deref()).await?;
+        rename::name_file(config, ws, llm, &current, text.as_deref()).await?;
     }
     Ok(())
 }
@@ -115,7 +116,12 @@ fn file_stem(path: &Path) -> String {
 }
 
 /// `counterpart <file>`: looks for the missing pages right away.
-pub async fn counterpart(config: &Config, file: &Path, search_in: Option<&Path>) -> Res<()> {
+pub async fn counterpart(
+    config: &Config,
+    llm: &impl Model,
+    file: &Path,
+    search_in: Option<&Path>,
+) -> Res<()> {
     let scan = Scan::read(file, &config.ocr_language)?;
     let report = completeness(&scan.pages);
     if !report.is_incomplete() {
@@ -124,7 +130,7 @@ pub async fn counterpart(config: &Config, file: &Path, search_in: Option<&Path>)
         return Ok(());
     }
     println!("{}: printed page {} missing", file.display(), join(&report.missing));
-    find_counterpart(config, file, &scan, &report, search_in).await.map(|_| ())
+    find_counterpart(config, llm, file, &scan, &report, search_in).await.map(|_| ())
 }
 
 fn print_report(file: &Path, pages: &[Page], report: &Report) {
@@ -168,6 +174,7 @@ struct Candidate {
 
 async fn find_counterpart(
     config: &Config,
+    llm: &impl Model,
     file: &Path,
     scan: &Scan,
     report: &Report,
@@ -263,7 +270,7 @@ async fn find_counterpart(
             merged.path(),
         )?;
         let out = pdfdoc::output_path(None, file, "complete")?;
-        let written = sort::run(config, merged.path(), Some(&out), false).await?;
+        let written = sort::run(config, llm, merged.path(), Some(&out), false).await?;
         if written.is_some() {
             if !still.is_empty() {
                 println!(

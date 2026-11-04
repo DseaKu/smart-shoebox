@@ -2,7 +2,7 @@
 //! e.g. `IMG_20261103090559.pdf` → `2026-03-14_steuerbescheid-2025-finanzamt-muenchen.pdf`.
 
 use crate::{
-    Res, config::Config, hash, index, llm::Llm, naming, pdf, prompt, roles, workspace::Workspace,
+    Res, config::Config, hash, index, llm::Model, naming, pdf, prompt, roles, workspace::Workspace,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -12,12 +12,11 @@ use std::path::{Path, PathBuf};
 /// The model only needs the start of a document to name it.
 const MAX_TEXT_CHARS: usize = 4000;
 
-pub async fn run(config: &Config, ws: &Workspace, files: &[PathBuf]) -> Res<()> {
+pub async fn run(config: &Config, ws: &Workspace, llm: &impl Model, files: &[PathBuf]) -> Res<()> {
     let rows = index::parse(&index::read(&ws.index_path())?);
-    let llm = Llm::new(config);
     let mut failed = 0;
     for file in files {
-        if let Err(e) = name_one(config, &llm, &rows, file, None).await {
+        if let Err(e) = name_one(config, llm, &rows, file, None).await {
             eprintln!("error: {}: {e}", file.display());
             failed += 1;
         }
@@ -31,14 +30,20 @@ pub async fn run(config: &Config, ws: &Workspace, files: &[PathBuf]) -> Res<()> 
 /// Names a single file, e.g. for `check`.
 /// `text` is the document's text if the caller already has it (e.g. `check`
 /// after its own OCR), so it is not read and OCR'd a second time.
-pub async fn name_file(config: &Config, ws: &Workspace, file: &Path, text: Option<&str>) -> Res<()> {
+pub async fn name_file(
+    config: &Config,
+    ws: &Workspace,
+    llm: &impl Model,
+    file: &Path,
+    text: Option<&str>,
+) -> Res<()> {
     let rows = index::parse(&index::read(&ws.index_path())?);
-    name_one(config, &Llm::new(config), &rows, file, text).await
+    name_one(config, llm, &rows, file, text).await
 }
 
 async fn name_one(
     config: &Config,
-    llm: &Llm,
+    llm: &impl Model,
     rows: &[index::Row],
     file: &Path,
     known_text: Option<&str>,
@@ -61,7 +66,7 @@ async fn name_one(
                 None => pdf::extract_text(file, &config.ocr_language)?,
             };
             let start: String = text.chars().take(MAX_TEXT_CHARS).collect();
-            eprintln!("Asking {} for a name for {}…", config.model, file.display());
+            eprintln!("Asking {} for a name for {}…", llm.name(), file.display());
             match llm.ask_for::<NameAnswer>(roles::NAMER, &start).await {
                 Ok(answer) => (answer.date, answer.title),
                 Err(e) => {

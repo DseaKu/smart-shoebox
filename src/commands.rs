@@ -1,12 +1,12 @@
 use crate::{
-    Res, config::Config, entry::Entry, export, hash, index, llm::Llm, pdf, pdfdoc, pipeline,
+    Res, config::Config, entry::Entry, export, hash, index, llm::Model, pdf, pdfdoc, pipeline,
     prompt, search, store, trash, workspace::Workspace,
 };
 use std::path::{Path, PathBuf};
 
 /// Hash → duplicate check → extract text (OCR if needed) → AI proposal and review
 /// → my confirmation → copy into the box's `store/` → append to its `index.tsv`.
-pub async fn add(config: &Config, ws: &Workspace, file: &Path) -> Res<()> {
+pub async fn add(config: &Config, ws: &Workspace, llm: &impl Model, file: &Path) -> Res<()> {
     let hash = hash::sha256_file(file)?;
     let index = index::read(&ws.index_path())?;
     if index::contains(&index, &hash) {
@@ -16,9 +16,8 @@ pub async fn add(config: &Config, ws: &Workspace, file: &Path) -> Res<()> {
 
     let text = pdf::extract_text(file, &config.ocr_language)?;
 
-    eprintln!("Asking {} for date, tags and summary…", config.model);
-    let llm = Llm::new(config);
-    let entry = match pipeline::add(&llm, &text, &index::tags(&index), config.review).await {
+    eprintln!("Asking {} for date, tags and summary…", llm.name());
+    let entry = match pipeline::add(llm, &text, &index::tags(&index), config.review).await {
         Ok(entry) => entry,
         Err(e) => {
             eprintln!("The model gave no usable answer ({e}); please fill in the fields.");
@@ -70,7 +69,13 @@ pub fn merge(inputs: &[PathBuf], out: Option<&Path>) -> Res<()> {
 
 /// Asks the AI which index rows match the question, prints them and,
 /// with `to`, copies them into that folder under readable names.
-pub async fn find(config: &Config, ws: &Workspace, question: &str, to: Option<&Path>) -> Res<()> {
+pub async fn find(
+    config: &Config,
+    ws: &Workspace,
+    llm: &impl Model,
+    question: &str,
+    to: Option<&Path>,
+) -> Res<()> {
     let index = index::read(&ws.index_path())?;
     if index::is_empty(&index) {
         return Err("index.tsv is empty, nothing to search yet.".into());
@@ -92,8 +97,7 @@ pub async fn find(config: &Config, ws: &Workspace, question: &str, to: Option<&P
         );
     }
 
-    let llm = Llm::new(config);
-    let matches = pipeline::find(&llm, &selection, question).await?;
+    let matches = pipeline::find(llm, &selection, question).await?;
     if matches.is_empty() {
         println!("No matching document found.");
         return Ok(());

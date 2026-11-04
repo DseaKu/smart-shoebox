@@ -171,20 +171,45 @@ fn ask(prompt: &str) -> Res<Option<String>> {
         return Ok(Some("y".to_string()));
     }
     io::stdout().flush()?;
-    discard_typeahead();
-    let mut line = String::new();
-    if io::stdin().read_line(&mut line)? == 0 {
-        return Ok(None);
-    }
-    Ok(Some(line.trim().to_lowercase()))
+    Ok(read_line()?.map(|line| line.trim().to_lowercase()))
 }
 
 /// Asks for a new value; an empty answer keeps the current one.
 fn edit(label: &str, current: &str) -> Res<String> {
     print!("{label} [{current}]: ");
     io::stdout().flush()?;
-    let mut line = String::new();
-    io::stdin().read_line(&mut line)?;
+    let line = read_line()?.unwrap_or_default();
     let line = line.trim();
     Ok(if line.is_empty() { current.to_string() } else { line.to_string() })
+}
+
+/// One line of input. `None` means there is no more (stdin closed).
+/// Keys typed while the program was busy are thrown away first.
+fn read_line() -> Res<Option<String>> {
+    #[cfg(test)]
+    if let Some(answer) = SCRIPT.with(|s| s.borrow_mut().as_mut().map(|q| q.pop_front())) {
+        println!("{}", answer.as_deref().unwrap_or("(no more answers)"));
+        return Ok(answer);
+    }
+    discard_typeahead();
+    let mut line = String::new();
+    if io::stdin().read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    Ok(Some(line))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Answers for the questions in a test, in order. When they run out, every
+    /// further question gets "no more input", which counts as no, so a test
+    /// can never hang waiting for the keyboard.
+    static SCRIPT: std::cell::RefCell<Option<std::collections::VecDeque<String>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Sets the answers for the questions in a test (this thread only).
+#[cfg(test)]
+pub fn script(answers: &[&str]) {
+    SCRIPT.with(|s| *s.borrow_mut() = Some(answers.iter().map(|a| a.to_string()).collect()));
 }

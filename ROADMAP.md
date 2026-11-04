@@ -65,14 +65,18 @@ and there is no per-command help.
 - [x] Commands and options stay the same, so the README stays valid;
       `-y` keeps working everywhere. Also new: `shoebox --version`.
 
-## 5. Testable command flows (lower)
+## 5. Testable command flows (lower) — done
 
 **Problem:** the model is a concrete type, so `add`, `sort`, `check` and
 `counterpart` can only be tested by hand.
 
-- [ ] A small trait for the model, with a fake model for tests.
-- [ ] End-to-end tests for `add`, `find`, `sort`, `check` and `counterpart`
-      with generated test PDFs in a temporary box, without Ollama.
+- [x] A small trait for the model (`Model`), with a fake model for tests
+      (`testutil::FakeModel`). `main` creates the model and passes it to the
+      commands. Prompts can be answered by a script in tests.
+- [x] End-to-end tests for `add`, `find`, `sort`, `check` and `counterpart`
+      with generated test PDFs in a temporary box, without Ollama (`src/flows.rs`,
+      7 tests, plus `name`). Checked that they catch bugs: with the page ordering
+      in `sort` deliberately broken, the `sort` and `check` tests fail.
 
 ## 6. Tidy-up (lower)
 

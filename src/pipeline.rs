@@ -2,7 +2,7 @@ use crate::{
     Res,
     entry::Entry,
     index::Row,
-    llm::Llm,
+    llm::Model,
     roles,
     search::{self, Selection},
 };
@@ -31,7 +31,7 @@ impl From<EntryAnswer> for Entry {
 /// `add`: the extractor proposes an entry; with `review`, the reviewer checks it
 /// against the text. If the review fails, the proposal is used. Fails only if
 /// the extractor gives no usable answer, even after one retry.
-pub async fn add(llm: &Llm, text: &str, existing_tags: &[String], review: bool) -> Result<Entry, String> {
+pub async fn add(llm: &impl Model, text: &str, existing_tags: &[String], review: bool) -> Result<Entry, String> {
     let tag_list = if existing_tags.is_empty() {
         "(none yet)".to_string()
     } else {
@@ -58,7 +58,7 @@ pub async fn add(llm: &Llm, text: &str, existing_tags: &[String], review: bool) 
 
 /// `find`: the finder picks matching rows from the index.
 /// Retries once if the answer is unusable (see `Llm::ask_for`).
-pub async fn find<'a>(llm: &Llm, selection: &Selection<'a>, question: &str) -> Res<Vec<&'a Row>> {
+pub async fn find<'a>(llm: &impl Model, selection: &Selection<'a>, question: &str) -> Res<Vec<&'a Row>> {
     let message = format!("Index:\n{}\n\nQuestion: {question}", selection.prompt_lines());
     let answer: search::Answer = llm
         .ask_for(roles::FINDER, &message)
