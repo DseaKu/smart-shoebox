@@ -15,6 +15,17 @@ pub fn assume_yes() {
     ASSUME_YES.store(true, Ordering::Relaxed);
 }
 
+/// Asks a plain yes/no question until it gets y or n. A closed stdin counts as no.
+pub fn ask_yes_no(question: &str) -> Res<bool> {
+    loop {
+        match ask(question)?.as_deref() {
+            Some("y" | "yes") => return Ok(true),
+            Some("n" | "no") | None => return Ok(false),
+            Some(_) => println!("Please answer y or n."),
+        }
+    }
+}
+
 /// Shows the proposed file name and asks me to accept, edit or reject it.
 /// Returns the chosen name without `.pdf`, or `None` if I reject it.
 pub fn confirm_name(file: &Path, suggestion: &str) -> Res<Option<String>> {
@@ -75,8 +86,8 @@ pub fn confirm_sort(mut groups: Vec<Group>, pages: &[Page], delete_blank: bool) 
             .map(|p| p.number.to_string())
             .collect();
         if !blank.is_empty() {
-            let what = if delete_blank { "removed" } else { "moved to the end" };
-            println!("Blank pages, {what}: {}", blank.join(", "));
+            let what = if delete_blank { "removed" } else { "you will be asked whether to delete them" };
+            println!("Blank pages ({what}): {}", blank.join(", "));
         }
         let duplicates: Vec<String> = pages
             .iter()
@@ -93,7 +104,7 @@ pub fn confirm_sort(mut groups: Vec<Group>, pages: &[Page], delete_blank: bool) 
             Some("n" | "no") | None => return Ok(None),
             Some("e" | "edit") => {
                 println!("Type the new page order, e.g. 1,6,4,5,2 (';' groups pages: 1,6,4; 5,2).");
-                let blank_rule = if delete_blank { "they are removed" } else { "they go to the end" };
+                let blank_rule = if delete_blank { "they are removed" } else { "you decide about them at the end" };
                 println!("Every page must be listed, except blank pages ({blank_rule})");
                 println!("and duplicate scans (left out unless you list them).");
                 let Some(line) = ask("> ")? else { return Ok(None) };

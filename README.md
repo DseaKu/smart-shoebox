@@ -121,7 +121,9 @@ a3f9…   2026-03-14  bescheid.pdf      steuer,finanzamt  Steuerbescheid 2025, N
 | `find "<question>" [--to <folder>]` | Give the AI the index and the question; it returns the matching row(s) and the path(s). With `--to`, copies the matches into that folder with a readable name like `2026-03-14_steuerbescheid-finanzamt-muenchen-nachzahlung.pdf`. |
 | `name <file.pdf>…`  | Rename PDFs in place to a readable name like `2026-03-14_steuerbescheid-2025-finanzamt-muenchen.pdf`. Documents already in the box are named from the index; others get a date and short title from the AI. I confirm or edit each name; existing files are never overwritten. |
 | `merge <a.pdf> <b.pdf>… [--out <file.pdf>]` | Append the PDFs, in the given order, into one PDF (default `<a>_merged.pdf`). No AI, no OCR. |
-| `sort <scan.pdf> [--out <file.pdf>] [--delete-blank]` | Let the AI put the pages of one PDF into reading order, then ask me to accept or edit. Writes one PDF with the same pages (default `<scan>_sorted.pdf`); blank pages go to the end, or are left out with `--delete-blank`. |
+| `sort <scan.pdf> [--out <file.pdf>] [--delete-blank]` | Let the AI put the pages of one PDF into reading order, then ask me to accept or edit. Writes one PDF with the same pages (default `<scan>_sorted.pdf`); if there are blank pages, it asks at the end whether to delete them (`--delete-blank` deletes them without asking). |
+| `check <scan.pdf> [--in <folder>]` | Check from the printed page numbers whether a scan is complete; report missing pages, blank pages and duplicates. If pages are missing, offer to run `counterpart`. |
+| `counterpart <scan.pdf> [--in <folder>]` | Look through the other PDFs in the same folder (or `--in`) for the missing pages. A match must contain a missing page and share at least 2 reference numbers or dates. If I agree, merge and sort both into `<scan>_complete.pdf`. |
 | `verify` (planned) | Rehash every file in `store/` and compare with the index. Reports missing, unknown or corrupted files.                                                                                            |
 
 `-y` / `--yes` (anywhere on the command line) answers yes to every
@@ -178,10 +180,33 @@ the only pages it leaves out are duplicate scans:
 4. In code: each document is ordered by its printed page numbers. Pages
    without a number fill the gaps (usually page 1 with the letterhead), and
    numbers still missing are reported ("printed page 6 is not in the scan").
-5. I confirm or edit the order (e.g. `1,6,4,5,2`). Blank pages go to the end
-   unless I place them (with `--delete-blank` they are left out instead);
-   duplicates are left out unless I list them. The original scan is never
-   changed.
+5. I confirm or edit the order (e.g. `1,6,4,5,2`). Duplicates are left out
+   unless I list them.
+6. If blank pages are left over, it asks whether to delete them; if not, they
+   go to the end. `--delete-blank` deletes them without asking, and a blank
+   page I placed myself while editing is always kept. The original scan is
+   never changed.
+
+### Completing a scan
+
+A one-sided scanner often leaves a document spread over two files, e.g. the
+fronts in one and the backs in another:
+
+```
+shoebox check input/nebenkostenabrechnung.pdf
+```
+
+1. `check` reads the printed page numbers (with OCR if needed). Pages without a
+   number fill the lowest gaps, usually page 1 with the letterhead. A "von N"
+   on any page also reveals missing last pages; without it, missing pages at
+   the end cannot be noticed.
+2. If pages are missing, it offers to look for the **counterpart**: another PDF
+   in the same folder that contains missing page numbers and shares reference
+   numbers or dates (contract numbers, customer numbers, …). This is plain
+   code, no AI. The best match is shown first.
+3. If I agree, both files are merged and go through the normal `sort`, with
+   its confirmation. The result is `<scan>_complete.pdf`; the originals stay as
+   they are. Pages still missing afterwards are reported.
 
 ## Design decisions
 

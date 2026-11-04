@@ -6,13 +6,13 @@ use crate::{
     config::Config,
     llm::Llm,
     pages::{self, Page},
-    pdf::{self, TempFile},
     pdfdoc, prompt, roles,
+    scan::Scan,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Pages that belong together (one letter, notice, …), in reading order.
 /// The AI groups pages because that makes ordering easier; the output is still one PDF
@@ -34,8 +34,13 @@ struct Plan {
 
 /// OCR if needed → AI orders the non-blank pages → I confirm or edit
 /// → one PDF with all pages in the new order (blank pages at the end,
-/// or left out with `delete_blank`).
-pub async fn run(config: &Config, input: &Path, out: Option<&Path>, delete_blank: bool) -> Res<()> {
+/// or left out with `delete_blank`). Returns the written file, or `None` if I said no.
+pub async fn run(
+    config: &Config,
+    input: &Path,
+    out: Option<&Path>,
+    delete_blank: bool,
+) -> Res<Option<PathBuf>> {
     if !input.is_file() {
         return Err(format!("{} does not exist", input.display()).into());
     }
@@ -43,18 +48,8 @@ pub async fn run(config: &Config, input: &Path, out: Option<&Path>, delete_blank
 
     // The result is built from the OCR'd copy when there is one, so it is
     // searchable and straightened, and `add` needs no second OCR.
-    let ocr_copy = TempFile::new("sort-ocr");
-    let mut texts = pdf::text_by_pages(input)?;
-    let source = if texts.iter().any(|t| pages::is_blank(t)) {
-        eprintln!("Running OCR on {} pages, this can take a while…", texts.len());
-        pdf::ocr(input, ocr_copy.path(), &config.ocr_language, true)?;
-        texts = pdf::text_by_pages(ocr_copy.path())?;
-        ocr_copy.path()
-    } else {
-        input
-    };
-
-    let pages = pages::analyze(texts);
+    let scan = Scan::read(input, &config.ocr_language)?;
+    let pages = &scan.pages;
     let content: Vec<u32> = pages.iter().filter(|p| p.is_content()).map(|p| p.number).collect();
     if content.is_empty() {
         return Err("no text found on any page".into());
@@ -62,20 +57,35 @@ pub async fn run(config: &Config, input: &Path, out: Option<&Path>, delete_blank
 
     eprintln!("Asking {} to sort {} pages…", config.model, content.len());
     let llm = Llm::new(config);
-    let mut groups = ask_for_groups(&llm, &pages, &content).await?;
+    let mut groups = ask_for_groups(&llm, pages, &content).await?;
     // The AI decides which pages belong together; printed page numbers decide
     // the order, because small models are unreliable at ordering by them.
-    order_by_printed_numbers(&mut groups, &pages);
+    order_by_printed_numbers(&mut groups, pages);
 
-    let Some(groups) = prompt::confirm_sort(groups, &pages, delete_blank)? else {
+    let Some(groups) = prompt::confirm_sort(groups, pages, delete_blank)? else {
         println!("Nothing written.");
-        return Ok(());
+        return Ok(None);
     };
 
-    let order = final_order(&groups, &pages, delete_blank);
-    pdfdoc::extract_pages(source, &order, &out)?;
+    // Blank pages I did not place myself: ask whether to delete them,
+    // unless `--delete-blank` already said so.
+    let leftover_blank: Vec<String> = pages
+        .iter()
+        .filter(|p| p.blank && !groups.iter().any(|g| g.pages.contains(&p.number)))
+        .map(|p| p.number.to_string())
+        .collect();
+    let delete_blank = delete_blank
+        || (!leftover_blank.is_empty()
+            && prompt::ask_yes_no(&format!(
+                "Delete blank page{} {}? [y]es / [n]o (no: they go to the end): ",
+                if leftover_blank.len() == 1 { "" } else { "s" },
+                leftover_blank.join(", ")
+            ))?);
+
+    let order = final_order(&groups, pages, delete_blank);
+    pdfdoc::extract_pages(scan.source(), &order, &out)?;
     println!("Wrote {} ({} pages)", out.display(), order.len());
-    Ok(())
+    Ok(Some(out))
 }
 
 /// The result: the groups one after another, then any blank page not placed yet

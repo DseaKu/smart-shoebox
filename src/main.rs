@@ -1,4 +1,5 @@
 mod commands;
+mod complete;
 mod config;
 mod entry;
 mod export;
@@ -13,6 +14,7 @@ mod pipeline;
 mod prompt;
 mod rename;
 mod roles;
+mod scan;
 mod sort;
 mod store;
 mod workspace;
@@ -31,10 +33,12 @@ fn usage(program: &str) -> ! {
     eprintln!("       {program} name <file.pdf>...");
     eprintln!("       {program} merge <a.pdf> <b.pdf>... [--out <file.pdf>]");
     eprintln!("       {program} sort <scan.pdf> [--out <file.pdf>] [--delete-blank]");
+    eprintln!("       {program} check <scan.pdf> [--in <folder>]");
+    eprintln!("       {program} counterpart <scan.pdf> [--in <folder>]");
     eprintln!();
     eprintln!("Options: -y, --yes   answer yes to every confirmation (skips my review)");
     eprintln!();
-    eprintln!("add, find, name and sort use the nearest shoebox: the current folder or one above it,");
+    eprintln!("add, find, name, sort, check and counterpart use the nearest shoebox: the current folder or one above it,");
     eprintln!("or its {}/ subfolder. Set SHOEBOX_DIR to use one somewhere else.", workspace::DEFAULT_DIR);
     exit(1);
 }
@@ -150,8 +154,38 @@ async fn run() -> Res<()> {
                 usage(program);
             };
             let (_ws, config) = open_box()?;
-            sort::run(&config, file, out.as_deref(), delete_blank).await
+            sort::run(&config, file, out.as_deref(), delete_blank).await.map(|_| ())
+        }
+        Some(command @ ("check" | "counterpart")) => {
+            let (file, search_in) = file_and_in(program, &args[2..]);
+            let (_ws, config) = open_box()?;
+            if command == "check" {
+                complete::check(&config, &file, search_in.as_deref()).await
+            } else {
+                complete::counterpart(&config, &file, search_in.as_deref()).await
+            }
         }
         _ => usage(program),
     }
+}
+
+/// Exactly one file, plus an optional `--in <folder>` to search in.
+fn file_and_in(program: &str, args: &[String]) -> (PathBuf, Option<PathBuf>) {
+    let mut files = Vec::new();
+    let mut search_in = None;
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        if arg == "--in" {
+            let Some(dir) = rest.next() else {
+                usage(program);
+            };
+            search_in = Some(PathBuf::from(dir));
+        } else {
+            files.push(PathBuf::from(arg));
+        }
+    }
+    let [file] = files.as_slice() else {
+        usage(program);
+    };
+    (file.clone(), search_in)
 }
