@@ -24,6 +24,7 @@ pub fn create_if_missing(path: &Path) -> crate::Res<()> {
 }
 
 /// One document row of the index.
+#[derive(Clone)]
 pub struct Row {
     pub hash: String,
     pub date: String,

@@ -6,42 +6,88 @@ use crate::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Hash → duplicate check → extract text (OCR if needed) → AI proposal (and
 /// review, if on) → my confirmation → copy into `store/` → append to `index.tsv`.
 pub async fn run(config: &Config, ws: &Workspace, llm: &impl Model, file: &Path) -> Res<()> {
+    let proposal = match prepare(config, ws, llm, file).await? {
+        Prepared::AlreadyThere(stored) => {
+            println!("Already in the index: {}", stored.display());
+            return Ok(());
+        }
+        Prepared::New(proposal) => proposal,
+    };
+    if let Some(e) = &proposal.model_error {
+        eprintln!("The model gave no usable answer ({e}); please fill in the fields.");
+    }
+    let Some(entry) = prompt::confirm(proposal.entry.clone())? else {
+        println!("Not added.");
+        return Ok(());
+    };
+    let stored = save(ws, &proposal, &entry)?;
+    println!("Added: {}", stored.display());
+    Ok(())
+}
+
+/// What `prepare` found out about a file.
+pub enum Prepared {
+    /// The identical file is already in the box (here).
+    AlreadyThere(PathBuf),
+    New(Proposal),
+}
+
+/// A file ready to be added, with the AI's proposal for its entry.
+#[derive(Clone)]
+pub struct Proposal {
+    pub file: PathBuf,
+    pub hash: String,
+    pub entry: Entry,
+    /// Set if the model gave no usable answer; `entry` is then empty.
+    pub model_error: Option<String>,
+}
+
+/// Everything before my confirmation: hash, duplicate check, text, AI proposal.
+/// Shared by the command line and the GUI.
+pub async fn prepare(
+    config: &Config,
+    ws: &Workspace,
+    llm: &impl Model,
+    file: &Path,
+) -> Res<Prepared> {
     let hash = hash::sha256_file(file)?;
     let index = index::read(&ws.index_path())?;
     if index::contains(&index, &hash) {
-        println!("Already in the index: {}", store::path(ws, &hash).display());
-        return Ok(());
+        return Ok(Prepared::AlreadyThere(store::path(ws, &hash)));
     }
 
     let text = pdf::extract_text(file, &config.ocr_language)?;
 
     eprintln!("Asking {} for date, tags and summary…", llm.name());
-    let entry = match propose(llm, &text, &index::tags(&index), config.review).await {
-        Ok(entry) => entry,
-        Err(e) => {
-            eprintln!("The model gave no usable answer ({e}); please fill in the fields.");
-            Entry::default()
-        }
+    let (entry, model_error) = match propose(llm, &text, &index::tags(&index), config.review).await
+    {
+        Ok(entry) => (entry, None),
+        Err(e) => (Entry::default(), Some(e)),
     };
+    Ok(Prepared::New(Proposal {
+        file: file.to_path_buf(),
+        hash,
+        entry,
+        model_error,
+    }))
+}
 
-    let Some(entry) = prompt::confirm(entry)? else {
-        println!("Not added.");
-        return Ok(());
-    };
-
-    let original_name = file
+/// After my confirmation: copy into `store/` and append the (cleaned) entry.
+pub fn save(ws: &Workspace, proposal: &Proposal, entry: &Entry) -> Res<PathBuf> {
+    let entry = entry.clone().normalized();
+    let original_name = proposal
+        .file
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let stored = store::copy(ws, file, &hash)?;
-    index::append(&ws.index_path(), &hash, &original_name, &entry)?;
-    println!("Added: {}", stored.display());
-    Ok(())
+    let stored = store::copy(ws, &proposal.file, &proposal.hash)?;
+    index::append(&ws.index_path(), &proposal.hash, &original_name, &entry)?;
+    Ok(stored)
 }
 
 /// The extractor's and reviewer's answer.

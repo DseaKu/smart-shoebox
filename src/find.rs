@@ -22,35 +22,17 @@ pub async fn run(
     question: &str,
     to: Option<&Path>,
 ) -> Res<()> {
-    let index = index::read(&ws.index_path())?;
-    if index::is_empty(&index) {
-        return Err("index.tsv is empty, nothing to search yet.".into());
+    let found = search(config, ws, llm, question).await?;
+    if let Some(note) = &found.note {
+        eprintln!("{note}");
     }
-    let rows = index::parse(&index);
-    let selection = search::select(&rows, question, config.context_size);
-    if selection.left_out > 0 && selection.focused {
-        eprintln!(
-            "Searching the {} of {} documents that match your words best.",
-            selection.rows.len(),
-            rows.len()
-        );
-    } else if selection.left_out > 0 {
-        eprintln!(
-            "Searching {} of {} documents (the newest); the rest do not fit into the model's \
-             context. Use words from the document, or raise context_size in shoebox.yaml.",
-            selection.rows.len(),
-            rows.len()
-        );
-    }
-
-    let matches = ask(llm, &selection, question).await?;
-    if matches.is_empty() {
+    if found.rows.is_empty() {
         println!("No matching document found.");
         return Ok(());
     }
 
     let mut failed = false;
-    for row in matches {
+    for row in &found.rows {
         println!("{}  {}", row.date, row.summary);
         println!("  tags: {}", row.tags);
         println!("  {}", store::path(ws, &row.hash).display());
@@ -72,6 +54,48 @@ pub async fn run(
         return Err("some documents could not be copied".into());
     }
     Ok(())
+}
+
+/// The matching rows, and a note if not every document could be searched.
+pub struct Found {
+    pub rows: Vec<Row>,
+    pub note: Option<String>,
+}
+
+/// The search itself, shared by the command line and the GUI.
+pub async fn search(
+    config: &Config,
+    ws: &Workspace,
+    llm: &impl Model,
+    question: &str,
+) -> Res<Found> {
+    let index = index::read(&ws.index_path())?;
+    if index::is_empty(&index) {
+        return Err("index.tsv is empty, nothing to search yet.".into());
+    }
+    let rows = index::parse(&index);
+    let selection = search::select(&rows, question, config.context_size);
+    let note = if selection.left_out > 0 && selection.focused {
+        Some(format!(
+            "Searching the {} of {} documents that match your words best.",
+            selection.rows.len(),
+            rows.len()
+        ))
+    } else if selection.left_out > 0 {
+        Some(format!(
+            "Searching {} of {} documents (the newest); the rest do not fit into the model's \
+             context. Use words from the document, or raise context_size in shoebox.yaml.",
+            selection.rows.len(),
+            rows.len()
+        ))
+    } else {
+        None
+    };
+    let matches = ask(llm, &selection, question).await?;
+    Ok(Found {
+        rows: matches.into_iter().cloned().collect(),
+        note,
+    })
 }
 
 /// The finder picks matching rows from the selection (with one retry, see

@@ -18,6 +18,7 @@ const ENV_VAR: &str = "SHOEBOX_DIR";
 /// Default settings for `shoebox init`.
 const CONFIG_TEMPLATE: &str = include_str!("../shoebox.example.yaml");
 
+#[derive(Clone)]
 pub struct Workspace {
     root: PathBuf,
 }
