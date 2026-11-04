@@ -203,12 +203,7 @@ fn describe(pages: &[Page], count: usize) -> String {
 
 /// Parses the model's JSON and checks that every page is used exactly once.
 fn parse_plan(answer: &str, content: &[u32]) -> Result<Vec<Group>, String> {
-    // Some models wrap the JSON in ``` fences or add a sentence; take the object only.
-    let json = match (answer.find('{'), answer.rfind('}')) {
-        (Some(start), Some(end)) if start < end => &answer[start..=end],
-        _ => return Err("no JSON object in the answer".into()),
-    };
-    let plan: Plan = serde_json::from_str(json).map_err(|e| format!("not valid JSON: {e}"))?;
+    let plan: Plan = crate::llm::parse_json(answer)?;
     let groups: Vec<Group> = plan.documents.into_iter().filter(|g| !g.pages.is_empty()).collect();
     validate(&groups, content, content)?;
     Ok(groups)

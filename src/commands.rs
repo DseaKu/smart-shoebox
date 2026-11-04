@@ -18,13 +18,13 @@ pub async fn add(config: &Config, ws: &Workspace, file: &Path) -> Res<()> {
 
     eprintln!("Asking {} for date, tags and summary…", config.model);
     let llm = Llm::new(config);
-    let (proposal, reviewed) = pipeline::add(&llm, &text, &index::tags(&index)).await?;
-    let entry = Entry::parse(&reviewed)
-        .or_else(|| Entry::parse(&proposal))
-        .unwrap_or_else(|| {
-            eprintln!("The model's answer could not be parsed, please fill in the fields.");
+    let entry = match pipeline::add(&llm, &text, &index::tags(&index), config.review).await {
+        Ok(entry) => entry,
+        Err(e) => {
+            eprintln!("The model gave no usable answer ({e}); please fill in the fields.");
             Entry::default()
-        });
+        }
+    };
 
     let Some(entry) = prompt::confirm(entry)? else {
         println!("Not added.");

@@ -4,6 +4,8 @@
 use crate::{
     Res, config::Config, hash, index, llm::Llm, naming, pdf, prompt, roles, workspace::Workspace,
 };
+use schemars::JsonSchema;
+use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -60,7 +62,13 @@ async fn name_one(
             };
             let start: String = text.chars().take(MAX_TEXT_CHARS).collect();
             eprintln!("Asking {} for a name for {}…", config.model, file.display());
-            parse_answer(&llm.ask(roles::NAMER, &start).await?)
+            match llm.ask_for::<NameAnswer>(roles::NAMER, &start).await {
+                Ok(answer) => (answer.date, answer.title),
+                Err(e) => {
+                    eprintln!("The model gave no usable answer ({e}); type a name yourself with [e]dit.");
+                    (String::new(), String::new())
+                }
+            }
         }
     };
 
@@ -84,20 +92,11 @@ async fn name_one(
     Ok(())
 }
 
-/// Reads `date: …` and `title: …` from the model's answer; missing lines stay empty.
-fn parse_answer(answer: &str) -> (String, String) {
-    let (mut date, mut title) = (String::new(), String::new());
-    for line in answer.lines() {
-        let line = line.trim().trim_start_matches(['-', '*', ' ']);
-        let Some((key, value)) = line.split_once(':') else { continue };
-        let value = value.trim().trim_matches(['*', '"']).trim().to_string();
-        match key.trim().trim_matches('*').to_lowercase().as_str() {
-            "date" => date = value,
-            "title" => title = value,
-            _ => {}
-        }
-    }
-    (date, title)
+/// The namer's answer.
+#[derive(Deserialize, JsonSchema)]
+struct NameAnswer {
+    date: String,
+    title: String,
 }
 
 #[cfg(test)]
@@ -106,9 +105,12 @@ mod tests {
 
     #[test]
     fn reads_the_models_answer() {
-        let (date, title) = parse_answer("date: 2026-03-14\ntitle: \"Steuerbescheid 2025 Finanzamt München\"");
-        assert_eq!(date, "2026-03-14");
-        assert_eq!(title, "Steuerbescheid 2025 Finanzamt München");
-        assert_eq!(parse_answer("no idea"), (String::new(), String::new()));
+        let answer: NameAnswer = crate::llm::parse_json(
+            "```json\n{\"date\": \"2026-03-14\", \"title\": \"Steuerbescheid 2025 Finanzamt München\"}\n```",
+        )
+        .unwrap();
+        assert_eq!(answer.date, "2026-03-14");
+        assert_eq!(answer.title, "Steuerbescheid 2025 Finanzamt München");
+        assert!(crate::llm::parse_json::<NameAnswer>("date: 2026-03-14").is_err());
     }
 }

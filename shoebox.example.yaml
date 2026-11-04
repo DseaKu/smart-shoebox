@@ -9,3 +9,7 @@ context_size: 16384
 
 # Tesseract language(s) for OCR of scanned PDFs, e.g. deu or deu+eng.
 ocr_language: deu
+
+# add: let a second AI call (the reviewer) check the first proposal against the
+# document text. Slower; with small models it often changes little.
+review: true

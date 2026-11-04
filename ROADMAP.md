@@ -34,17 +34,24 @@ of 20.
 - [x] A test with deliberately broken PDFs (a missing font and a Type0 font
       without descendant fonts; both really crash `pdf-extract`).
 
-## 3. Consistent AI answers (medium)
+## 3. Consistent AI answers (medium) — done
 
 **Problem:** `sort` uses a strict JSON schema (which fixed the model getting
 stuck in loops), but `add` and `name` still parse free-text
 "date: … / tags: …" lines.
 
-- [ ] Move the extractor, reviewer and namer to `ask_structured`, like `sort`.
-- [ ] Make the reviewer optional (`review: true/false` in `shoebox.yaml`), to
+- [x] Move the extractor, reviewer and namer to strict JSON, like `sort`. All AI
+      calls now go through one helper (`Llm::ask_for`), and the free-text line
+      parsing is gone.
+- [x] Make the reviewer optional (`review: true/false` in `shoebox.yaml`), to
       measure whether the second AI call is worth it with small models.
-- [ ] Same retry and error handling as `sort`: if the model aborts, ask once
-      more, then let me fill in the fields.
+      **Measured with `qwen3:8b` on two test documents:** same result for one,
+      and for the other the reviewer made the tags *worse* (it copied the tax
+      tags `finanzamt,nachzahlung` onto an insurance letter). With the reviewer,
+      `add` took 9–12 s instead of 3–4 s.
+- [x] Same retry and error handling as `sort`: if the model aborts, ask once
+      more, then let me fill in the fields (or, for a failed review, use the
+      first proposal).
 
 ## 4. Command line with `clap` (medium)
 

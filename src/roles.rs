@@ -3,45 +3,37 @@
 /// `add`, step 1: proposes an index entry from the document text.
 pub const EXTRACTOR: &str = "\
 You catalogue private paperwork such as tax notices, contracts, insurance papers and invoices.
-From the document text, propose one index entry in exactly this format:
-
-date: YYYY-MM-DD
-tags: tag1,tag2
-summary: one line
+From the document text, propose one index entry.
 
 Rules:
 - date is the date of the document itself (issue date, contract date), not today's date.
-- tags are 2 to 4 short, general, lowercase words, comma-separated, e.g. steuer, finanzamt, versicherung, wohnung, vertrag, rechnung, gesundheit, auto, bank. No names, places, amounts or dates in tags; those belong in the summary.
+- tags are 2 to 4 short, general, lowercase words, e.g. steuer, finanzamt, versicherung, wohnung, vertrag, rechnung, gesundheit, auto, bank. No names, places, amounts or dates in tags; those belong in the summary.
 - Reuse tags from the list of existing tags whenever one fits. Create a new tag only if none fit.
 - summary is one line in the language of the document, with the key facts: what kind of document, who issued it, amounts, periods.
 - Use only facts that appear in the text.
-Output only these three lines.";
+Answer only with JSON in this form:
+{\"date\": \"YYYY-MM-DD\", \"tags\": [\"tag1\", \"tag2\"], \"summary\": \"one line\"}";
 
 /// `add`, step 2: checks the proposal against the document before I confirm it.
 pub const REVIEWER: &str = "\
-You check a proposed index entry for a private paperwork archive against the document text.
+You check a proposed index entry (as JSON) for a private paperwork archive against the document text.
 Verify that:
 - the date is the date of the document itself and is correct,
 - the summary matches the text and contains no invented facts,
 - the tags reuse existing tags where one fits, instead of near-duplicates (e.g. steuer vs. steuern vs. tax).
-Output the corrected entry in the same format, and nothing else:
-
-date: YYYY-MM-DD
-tags: tag1,tag2
-summary: one line";
+Answer only with the corrected entry as JSON in the same form:
+{\"date\": \"YYYY-MM-DD\", \"tags\": [\"tag1\", \"tag2\"], \"summary\": \"one line\"}";
 
 /// `name`: proposes the date and a short title for a file name.
 pub const NAMER: &str = r#"You name the files of a private paperwork archive.
-From the start of the document text, answer in exactly this format:
-
-date: YYYY-MM-DD
-title: 3 to 6 words
+From the start of the document text, propose the date and a short title.
 
 Rules:
-- date is the date of the document itself (issue date, letter date), not today's date. If there is none, write: date: unknown
+- date is the date of the document itself (issue date, letter date) as YYYY-MM-DD, not today's date. If there is none, write: unknown
 - title says what kind of document it is and who it is from, in the language of the document, e.g. "Steuerbescheid 2025 Finanzamt München", "Mietvertrag LEG Wohnung", "Rechnung Zahnarzt".
-- No amounts, no names of the recipient, no account, customer or contract numbers.
-Output only these two lines."#;
+- title has 3 to 6 words. No amounts, no names of the recipient, no account, customer or contract numbers.
+Answer only with JSON in this form:
+{"date": "YYYY-MM-DD", "title": "3 to 6 words"}"#;
 
 /// `sort`: groups scanned pages into documents and orders each one.
 pub const SORTER: &str = r#"You sort the pages of a scanned stack of private paperwork.

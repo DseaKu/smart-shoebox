@@ -104,14 +104,6 @@ pub fn select<'a>(rows: &'a [Row], question: &str, context_size: u64) -> Selecti
     }
 }
 
-/// Reads the model's JSON answer.
-pub fn parse_answer(answer: &str) -> Result<Answer, String> {
-    let json = match (answer.find('{'), answer.rfind('}')) {
-        (Some(start), Some(end)) if start < end => &answer[start..=end],
-        _ => return Err("no JSON object in the answer".into()),
-    };
-    serde_json::from_str(json).map_err(|e| format!("not valid JSON: {e}"))
-}
 
 fn line(n: u32, row: &Row) -> String {
     format!(
@@ -228,10 +220,10 @@ mod tests {
     fn answer_numbers_map_back_to_sent_rows_only() {
         let rows = [row(1, "2025-01-01", "a", "Eins"), row(2, "2025-01-02", "b", "Zwei")];
         let selection = Selection { rows: vec![(2, &rows[1])], left_out: 1, focused: true };
-        let answer = parse_answer(r#"{"matches": [2, 1, 2, 99]}"#).unwrap();
+        let answer: Answer = crate::llm::parse_json(r#"{"matches": [2, 1, 2, 99]}"#).unwrap();
         let found = selection.resolve(&answer);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].summary, "Zwei");
-        assert!(parse_answer("none").is_err());
+        assert!(crate::llm::parse_json::<Answer>("none").is_err());
     }
 }

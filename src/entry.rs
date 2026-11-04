@@ -7,33 +7,6 @@ pub struct Entry {
 }
 
 impl Entry {
-    /// Parses the three-line format from the roles:
-    /// `date: …`, `tags: …`, `summary: …`. Returns `None` if a line is missing.
-    pub fn parse(text: &str) -> Option<Entry> {
-        let (mut date, mut tags, mut summary) = (None, None, None);
-        for line in text.lines() {
-            let line = line.trim().trim_start_matches(['-', '*', ' ']);
-            let Some((key, value)) = line.split_once(':') else {
-                continue;
-            };
-            let value = value.trim().trim_matches('*').trim().to_string();
-            match key.trim().trim_matches('*').to_lowercase().as_str() {
-                "date" => date = Some(value),
-                "tags" => tags = Some(value),
-                "summary" => summary = Some(value),
-                _ => {}
-            }
-        }
-        Some(
-            Entry {
-                date: date?,
-                tags: tags?,
-                summary: summary?,
-            }
-            .normalized(),
-        )
-    }
-
     /// Lowercase, comma-separated tags without spaces, and no tabs or newlines anywhere,
     /// so the entry is always exactly one valid TSV row.
     pub fn normalized(self) -> Entry {
