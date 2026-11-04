@@ -74,7 +74,7 @@ pub fn output_path(explicit: Option<&Path>, input: &Path, suffix: &str) -> Res<P
 }
 
 fn load(path: &Path) -> Res<Document> {
-    Ok(Document::load(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?)
+    crate::pdf::guarded(path, || Document::load(path))
 }
 
 fn save(doc: &mut Document, out: &Path) -> Res<()> {

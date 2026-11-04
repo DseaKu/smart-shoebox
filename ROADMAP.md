@@ -22,16 +22,17 @@ longer be found, without any error.
 - [x] Fix the README ("a few thousand rows fit in context" is wrong).
 - [x] Tests for the pre-filter and for mapping numbers back to hashes.
 
-## 2. Don't crash on unusual PDFs (high priority)
+## 2. Don't crash on unusual PDFs (high priority) — done
 
 **Problem:** `pdf-extract` panics instead of returning an error in about 100
 places. One odd PDF ends the whole run, e.g. `name dummy/*.pdf` stops at file 3
 of 20.
 
-- [ ] Catch panics around `pdf-extract` in `pdf.rs`, so a broken PDF becomes a
-      normal error ("cannot read x.pdf: …").
-- [ ] Batch commands (`name`) continue with the next file after such an error.
-- [ ] A test with a deliberately broken PDF.
+- [x] Catch panics around `pdf-extract` in `pdf.rs`, so a broken PDF becomes a
+      normal error ("cannot read x.pdf: …"). Also around `lopdf` loading.
+- [x] Batch commands (`name`) continue with the next file after such an error.
+- [x] A test with deliberately broken PDFs (a missing font and a Type0 font
+      without descendant fonts; both really crash `pdf-extract`).
 
 ## 3. Consistent AI answers (medium)
 
