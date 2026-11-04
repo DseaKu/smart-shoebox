@@ -28,6 +28,11 @@ pub fn merge(inputs: &[PathBuf], out: &Path) -> Res<()> {
 }
 
 /// Writes a new PDF with only the given pages of `src` (1-based), in exactly that order.
+/// Number of pages in a PDF.
+pub fn page_count(path: &Path) -> Res<usize> {
+    Ok(load(path)?.get_pages().len())
+}
+
 pub fn extract_pages(src: &Path, page_numbers: &[u32], out: &Path) -> Res<()> {
     let mut doc = load(src)?;
     let all = doc.get_pages();

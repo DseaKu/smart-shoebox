@@ -37,6 +37,16 @@ pub fn free_path(dir: &Path, stem: &str) -> PathBuf {
     path
 }
 
+/// True if a file stem already follows the readable pattern: an optional
+/// `YYYY-MM-DD_` date, then at least two lowercase words joined by hyphens
+/// (a `-2` from a name clash is fine). `IMG_20261103090559` or `scan_001` are not.
+pub fn is_readable(stem: &str) -> bool {
+    static PATTERN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"^(\d{4}-\d{2}-\d{2}_)?[a-z0-9]+(-[a-z0-9]+)+$").expect("valid regex")
+    });
+    PATTERN.is_match(stem) && stem.chars().any(|c| c.is_ascii_lowercase())
+}
+
 fn is_iso_date(s: &str) -> bool {
     let b = s.as_bytes();
     b.len() == 10
@@ -97,6 +107,18 @@ mod tests {
         // Falls back to the next description, e.g. the tags.
         assert_eq!(stem("", &["€ !", "steuer finanzamt"]).unwrap(), "steuer-finanzamt");
         assert_eq!(stem("2026-03-14", &["", "--"]), None);
+    }
+
+    #[test]
+    fn recognises_readable_names() {
+        assert!(is_readable("2026-03-14_steuerbescheid-2025-finanzamt-muenchen"));
+        assert!(is_readable("2026-03-14_steuerbescheid-2025-finanzamt-muenchen-2"));
+        assert!(is_readable("mietvertrag-leg"));
+        assert!(!is_readable("IMG_20261103090559"));
+        assert!(!is_readable("scan_001"));
+        assert!(!is_readable("fronts_merged_sorted"));
+        assert!(!is_readable("Kuendigung-Allianz 2026"));
+        assert!(!is_readable("2026-03-14"));
     }
 
     #[test]

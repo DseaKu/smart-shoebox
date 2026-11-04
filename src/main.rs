@@ -17,6 +17,7 @@ mod roles;
 mod scan;
 mod sort;
 mod store;
+mod trash;
 mod workspace;
 
 use std::env;
@@ -158,9 +159,9 @@ async fn run() -> Res<()> {
         }
         Some(command @ ("check" | "counterpart")) => {
             let (file, search_in) = file_and_in(program, &args[2..]);
-            let (_ws, config) = open_box()?;
+            let (ws, config) = open_box()?;
             if command == "check" {
-                complete::check(&config, &file, search_in.as_deref()).await
+                complete::check(&config, &ws, &file, search_in.as_deref()).await
             } else {
                 complete::counterpart(&config, &file, search_in.as_deref()).await
             }

@@ -5,7 +5,8 @@
 //! (contract numbers, customer numbers, dates) are reliable and fast to compare.
 
 use crate::{
-    Res, config::Config, hash, pages::Page, pdf::TempFile, pdfdoc, prompt, scan::Scan, sort,
+    Res, config::Config, hash, index, naming, pages::Page, pdf::TempFile, pdfdoc, prompt, rename,
+    scan::Scan, sort, store, trash, workspace::Workspace,
 };
 use regex::Regex;
 use std::collections::{BTreeSet, HashSet};
@@ -62,14 +63,51 @@ pub fn completeness(pages: &[Page]) -> Report {
 }
 
 /// `check <file>`: prints the report; if pages are missing, offers to look for them.
-pub async fn check(config: &Config, file: &Path, search_in: Option<&Path>) -> Res<()> {
+/// `check <file>`: a general health check. Reports pages, the file name and
+/// whether it is in the box; then offers the fixes: first the counterpart
+/// (if pages are missing), then a readable name (for the result, if one was made).
+pub async fn check(
+    config: &Config,
+    ws: &Workspace,
+    file: &Path,
+    search_in: Option<&Path>,
+) -> Res<()> {
     let scan = Scan::read(file, &config.ocr_language)?;
     let report = completeness(&scan.pages);
     print_report(file, &scan.pages, &report);
-    if report.is_incomplete() && prompt::ask_yes_no("Search for the counterpart? [y]es / [n]o: ")? {
-        find_counterpart(config, file, &scan, &report, search_in).await?;
+
+    let stem = file_stem(file);
+    if naming::is_readable(&stem) {
+        println!("  name: ok");
+    } else {
+        println!("  name: \"{stem}\" is not readable (like 2026-03-14_steuerbescheid-2025-finanzamt-muenchen)");
+    }
+    let hash = hash::sha256_file(file)?;
+    if index::contains(&index::read(&ws.index_path())?, &hash) {
+        println!("  box: already added ({})", store::path(ws, &hash).display());
+    } else {
+        println!("  box: not added yet");
+    }
+    println!();
+
+    let mut current = file.to_path_buf();
+    if report.is_incomplete()
+        && prompt::ask_yes_no("Search for the counterpart? [y]es / [n]o: ")?
+        && let Some(result) = find_counterpart(config, file, &scan, &report, search_in).await?
+    {
+        current = result;
+    }
+    if current.is_file()
+        && !naming::is_readable(&file_stem(&current))
+        && prompt::ask_yes_no(&format!("Give {} a readable name? [y]es / [n]o: ", current.display()))?
+    {
+        rename::name_file(config, ws, &current).await?;
     }
     Ok(())
+}
+
+fn file_stem(path: &Path) -> String {
+    path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 /// `counterpart <file>`: looks for the missing pages right away.
@@ -82,11 +120,12 @@ pub async fn counterpart(config: &Config, file: &Path, search_in: Option<&Path>)
         return Ok(());
     }
     println!("{}: printed page {} missing", file.display(), join(&report.missing));
-    find_counterpart(config, file, &scan, &report, search_in).await
+    find_counterpart(config, file, &scan, &report, search_in).await.map(|_| ())
 }
 
 fn print_report(file: &Path, pages: &[Page], report: &Report) {
-    println!("{}: {} pages", file.display(), pages.len());
+    let plural = if pages.len() == 1 { "" } else { "s" };
+    println!("{}: {} page{plural}", file.display(), pages.len());
     if report.numbers.is_empty() {
         println!("  no printed page numbers found, so completeness cannot be checked");
         return;
@@ -129,7 +168,7 @@ async fn find_counterpart(
     scan: &Scan,
     report: &Report,
     search_in: Option<&Path>,
-) -> Res<()> {
+) -> Res<Option<PathBuf>> {
     let dir = match search_in {
         Some(dir) => dir.to_path_buf(),
         None => match file.parent() {
@@ -140,7 +179,7 @@ async fn find_counterpart(
     let paths = candidate_paths(file, &dir)?;
     if paths.is_empty() {
         println!("No other PDFs in {}.", dir.display());
-        return Ok(());
+        return Ok(None);
     }
     let plural = if paths.len() == 1 { "" } else { "s" };
     eprintln!("Looking through {} PDF{plural} in {}…", paths.len(), dir.display());
@@ -180,7 +219,7 @@ async fn find_counterpart(
              at least {MIN_SHARED} reference numbers or dates.",
             dir.display()
         );
-        return Ok(());
+        return Ok(None);
     }
 
     for candidate in &candidates {
@@ -220,13 +259,20 @@ async fn find_counterpart(
             merged.path(),
         )?;
         let out = pdfdoc::output_path(None, file, "complete")?;
-        if sort::run(config, merged.path(), Some(&out), false).await?.is_some() && !still.is_empty() {
-            println!("Still missing: printed page {}. Run `counterpart` on the result to look further.", join(&still));
+        let written = sort::run(config, merged.path(), Some(&out), false).await?;
+        if written.is_some() {
+            if !still.is_empty() {
+                println!(
+                    "Still missing: printed page {}. Run `counterpart` on the result to look further.",
+                    join(&still)
+                );
+            }
+            trash::offer(&[file.to_path_buf(), candidate.path.clone()])?;
         }
-        return Ok(());
+        return Ok(written);
     }
     println!("No file merged.");
-    Ok(())
+    Ok(None)
 }
 
 /// Other PDFs in `dir`: not the file itself, not an identical copy, and not one of

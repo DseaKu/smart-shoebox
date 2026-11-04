@@ -25,11 +25,6 @@ impl Scan {
         let mut texts = pdf::text_by_pages(input)?;
         let mut ocr_copy = None;
         if texts.iter().any(|t| pages::is_blank(t)) {
-            eprintln!(
-                "Running OCR on {} ({} pages), this can take a while…",
-                input.display(),
-                texts.len()
-            );
             let copy = TempFile::new("scan-ocr");
             pdf::ocr(input, copy.path(), ocr_language, true)?;
             texts = pdf::text_by_pages(copy.path())?;

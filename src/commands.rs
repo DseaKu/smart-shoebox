@@ -1,6 +1,6 @@
 use crate::{
     Res, config::Config, entry::Entry, export, hash, index, llm::Llm, pdf, pdfdoc, pipeline,
-    prompt, store, workspace::Workspace,
+    prompt, store, trash, workspace::Workspace,
 };
 use std::path::{Path, PathBuf};
 
@@ -50,9 +50,22 @@ pub fn merge(inputs: &[PathBuf], out: Option<&Path>) -> Res<()> {
     }
     let out = pdfdoc::output_path(out, &inputs[0], "merged")?;
     pdfdoc::merge(inputs, &out)?;
-    let pages = pdf::text_by_pages(&out)?.len();
+    let pages = pdfdoc::page_count(&out)?;
     println!("Wrote {} ({} files, {pages} pages)", out.display(), inputs.len());
-    Ok(())
+
+    // Only offer to delete the originals if every page made it into the result.
+    let expected = inputs.iter().map(|f| pdfdoc::page_count(f)).sum::<Res<usize>>()?;
+    if pages != expected {
+        eprintln!("warning: expected {expected} pages, so the original files are kept.");
+        return Ok(());
+    }
+    let mut originals: Vec<PathBuf> = Vec::new();
+    for input in inputs {
+        if !originals.contains(input) {
+            originals.push(input.clone());
+        }
+    }
+    trash::offer(&originals)
 }
 
 /// Asks the AI which index rows match the question, prints them and,

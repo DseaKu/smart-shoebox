@@ -26,6 +26,12 @@ pub async fn run(config: &Config, ws: &Workspace, files: &[PathBuf]) -> Res<()> 
     Ok(())
 }
 
+/// Names a single file, e.g. for `check`.
+pub async fn name_file(config: &Config, ws: &Workspace, file: &Path) -> Res<()> {
+    let rows = index::parse(&index::read(&ws.index_path())?);
+    name_one(config, &Llm::new(config), &rows, file).await
+}
+
 async fn name_one(config: &Config, llm: &Llm, rows: &[index::Row], file: &Path) -> Res<()> {
     if !file.is_file() {
         return Err("does not exist".into());
