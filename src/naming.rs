@@ -8,8 +8,8 @@ const MAX_SLUG_LEN: usize = 60;
 /// Common German and English filler words left out of file names.
 const FILLER_WORDS: &[&str] = &[
     "von", "vom", "mit", "fuer", "und", "der", "die", "das", "den", "dem", "des", "zur", "zum",
-    "im", "in", "am", "an", "auf", "bei", "ein", "eine", "einer", "einem", "einen", "ueber",
-    "the", "of", "and", "for", "with", "to", "a",
+    "im", "in", "am", "an", "auf", "bei", "ein", "eine", "einer", "einem", "einen", "ueber", "the",
+    "of", "and", "for", "with", "to", "a",
 ];
 
 /// `<date>_<slug>` from the first description that gives a non-empty slug.
@@ -47,17 +47,23 @@ pub fn is_readable(stem: &str) -> bool {
     PATTERN.is_match(stem) && stem.chars().any(|c| c.is_ascii_lowercase())
 }
 
-fn is_iso_date(s: &str) -> bool {
+/// True if `s` looks like a `YYYY-MM-DD` date.
+pub fn is_iso_date(s: &str) -> bool {
     let b = s.as_bytes();
     b.len() == 10
         && b[4] == b'-'
         && b[7] == b'-'
-        && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+        && b.iter()
+            .enumerate()
+            .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
 }
 
 /// Drops filler words from a slug, then cuts it to length at a word boundary.
 fn without_filler(slug: &str) -> String {
-    let words: Vec<&str> = slug.split('-').filter(|w| !FILLER_WORDS.contains(w)).collect();
+    let words: Vec<&str> = slug
+        .split('-')
+        .filter(|w| !FILLER_WORDS.contains(w))
+        .collect();
     truncate(&words.join("-"))
 }
 
@@ -103,16 +109,26 @@ mod tests {
             "2026-03-14_steuerbescheid-2025-finanzamt-muenchen"
         );
         // An invalid date is left out instead of ending up in the name.
-        assert_eq!(stem("unknown", &["Mietvertrag LEG"]).unwrap(), "mietvertrag-leg");
+        assert_eq!(
+            stem("unknown", &["Mietvertrag LEG"]).unwrap(),
+            "mietvertrag-leg"
+        );
         // Falls back to the next description, e.g. the tags.
-        assert_eq!(stem("", &["€ !", "steuer finanzamt"]).unwrap(), "steuer-finanzamt");
+        assert_eq!(
+            stem("", &["€ !", "steuer finanzamt"]).unwrap(),
+            "steuer-finanzamt"
+        );
         assert_eq!(stem("2026-03-14", &["", "--"]), None);
     }
 
     #[test]
     fn recognises_readable_names() {
-        assert!(is_readable("2026-03-14_steuerbescheid-2025-finanzamt-muenchen"));
-        assert!(is_readable("2026-03-14_steuerbescheid-2025-finanzamt-muenchen-2"));
+        assert!(is_readable(
+            "2026-03-14_steuerbescheid-2025-finanzamt-muenchen"
+        ));
+        assert!(is_readable(
+            "2026-03-14_steuerbescheid-2025-finanzamt-muenchen-2"
+        ));
         assert!(is_readable("mietvertrag-leg"));
         assert!(!is_readable("IMG_20261103090559"));
         assert!(!is_readable("scan_001"));
@@ -123,7 +139,8 @@ mod tests {
 
     #[test]
     fn keeps_names_short_at_word_boundaries() {
-        let long = "Beitragsanpassung Krankenversicherung Allianz Versicherungs AG zum ersten Januar";
+        let long =
+            "Beitragsanpassung Krankenversicherung Allianz Versicherungs AG zum ersten Januar";
         let s = stem("", &[long]).unwrap();
         assert!(s.len() <= MAX_SLUG_LEN && !s.ends_with('-'), "{s}");
     }

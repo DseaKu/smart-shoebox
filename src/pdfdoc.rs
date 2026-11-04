@@ -64,13 +64,7 @@ pub fn output_path(explicit: Option<&Path>, input: &Path, suffix: &str) -> Res<P
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "scan".to_string());
-    let mut path = dir.join(format!("{stem}_{suffix}.pdf"));
-    let mut n = 2;
-    while path.exists() {
-        path = dir.join(format!("{stem}_{suffix}-{n}.pdf"));
-        n += 1;
-    }
-    Ok(path)
+    Ok(crate::naming::free_path(dir, &format!("{stem}_{suffix}")))
 }
 
 fn load(path: &Path) -> Res<Document> {
@@ -96,7 +90,9 @@ fn flatten_inherited(doc: &mut Document, pages: &[ObjectId]) -> Res<()> {
             // The depth limit protects against broken files with a cycle in the tree.
             for _ in 0..64 {
                 let Some(parent_id) = parent else { break };
-                let Ok(node) = doc.get_dictionary(parent_id) else { break };
+                let Ok(node) = doc.get_dictionary(parent_id) else {
+                    break;
+                };
                 if let Ok(value) = node.get(key) {
                     inherited.push((key, value.clone()));
                     break;
@@ -155,7 +151,8 @@ mod tests {
         let font_id = doc.add_object(dictionary! {
             "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Courier",
         });
-        let resources_id = doc.add_object(dictionary! { "Font" => dictionary! { "F1" => font_id } });
+        let resources_id =
+            doc.add_object(dictionary! { "Font" => dictionary! { "F1" => font_id } });
         let mut kids: Vec<Object> = Vec::new();
         for label in labels {
             let content = Content {

@@ -51,7 +51,11 @@ pub async fn run(
     // searchable and straightened, and `add` needs no second OCR.
     let scan = Scan::read(input, &config.ocr_language)?;
     let pages = &scan.pages;
-    let content: Vec<u32> = pages.iter().filter(|p| p.is_content()).map(|p| p.number).collect();
+    let content: Vec<u32> = pages
+        .iter()
+        .filter(|p| p.is_content())
+        .map(|p| p.number)
+        .collect();
     if content.is_empty() {
         return Err("no text found on any page".into());
     }
@@ -92,7 +96,10 @@ pub async fn run(
 /// (unless `delete_blank`). Pages placed by hand are always kept; duplicates
 /// are left out unless they were placed by hand.
 pub fn final_order(groups: &[Group], pages: &[Page], delete_blank: bool) -> Vec<u32> {
-    let mut order: Vec<u32> = groups.iter().flat_map(|g| g.pages.iter().copied()).collect();
+    let mut order: Vec<u32> = groups
+        .iter()
+        .flat_map(|g| g.pages.iter().copied())
+        .collect();
     let placed: HashSet<u32> = order.iter().copied().collect();
     order.extend(
         pages
@@ -110,7 +117,11 @@ pub fn final_order(groups: &[Group], pages: &[Page], delete_blank: bool) -> Vec<
 fn order_by_printed_numbers(groups: &mut [Group], pages: &[Page]) {
     let printed = |p: u32| pages[p as usize - 1].printed_number;
     for group in groups {
-        let numbers: Vec<u32> = group.pages.iter().filter_map(|&p| printed(p).map(|x| x.n)).collect();
+        let numbers: Vec<u32> = group
+            .pages
+            .iter()
+            .filter_map(|&p| printed(p).map(|x| x.n))
+            .collect();
         let used: HashSet<u32> = numbers.iter().copied().collect();
         if numbers.is_empty() || used.len() != numbers.len() {
             continue;
@@ -156,7 +167,9 @@ async fn ask_for_groups(llm: &impl Model, pages: &[Page], content: &[u32]) -> Re
 
     eprintln!("The model's sorting failed ({error}), asking again…");
     let retry = if answer.is_empty() {
-        format!("{message}\n\nYour previous answer failed: {error}\nAnswer again, briefly, with valid JSON.")
+        format!(
+            "{message}\n\nYour previous answer failed: {error}\nAnswer again, briefly, with valid JSON."
+        )
     } else {
         format!(
             "{message}\n\nYour previous answer was invalid: {error}\nPrevious answer: {answer}\nAnswer again with valid JSON."
@@ -165,7 +178,9 @@ async fn ask_for_groups(llm: &impl Model, pages: &[Page], content: &[u32]) -> Re
     match attempt(llm, &retry, content).await {
         Ok(groups) => Ok(groups),
         Err((_, e)) => {
-            eprintln!("Still failing ({e}). Using scan order, ordered by printed page numbers; you can edit it.");
+            eprintln!(
+                "Still failing ({e}). Using scan order, ordered by printed page numbers; you can edit it."
+            );
             Ok(vec![Group {
                 title: String::new(),
                 pages: content.to_vec(),
@@ -178,7 +193,11 @@ async fn ask_for_groups(llm: &impl Model, pages: &[Page], content: &[u32]) -> Re
 /// One request. On failure returns the answer (empty if there was none) and why.
 /// An answer the model aborted, e.g. because it got stuck repeating itself,
 /// counts as an invalid answer instead of ending the whole run.
-async fn attempt(llm: &impl Model, message: &str, content: &[u32]) -> Result<Vec<Group>, (String, String)> {
+async fn attempt(
+    llm: &impl Model,
+    message: &str,
+    content: &[u32],
+) -> Result<Vec<Group>, (String, String)> {
     let answer = llm
         .ask_structured::<Plan>(roles::SORTER, message)
         .await
@@ -204,7 +223,11 @@ fn describe(pages: &[Page], count: usize) -> String {
 /// Parses the model's JSON and checks that every page is used exactly once.
 fn parse_plan(answer: &str, content: &[u32]) -> Result<Vec<Group>, String> {
     let plan: Plan = crate::llm::parse_json(answer)?;
-    let groups: Vec<Group> = plan.documents.into_iter().filter(|g| !g.pages.is_empty()).collect();
+    let groups: Vec<Group> = plan
+        .documents
+        .into_iter()
+        .filter(|g| !g.pages.is_empty())
+        .collect();
     validate(&groups, content, content)?;
     Ok(groups)
 }
@@ -223,13 +246,16 @@ pub fn validate(groups: &[Group], allowed: &[u32], required: &[u32]) -> Result<(
             return Err(format!("page {page} is used twice"));
         }
     }
-    let missing: Vec<String> = required
+    let missing: Vec<u32> = required
         .iter()
+        .copied()
         .filter(|p| !seen.contains(p))
-        .map(u32::to_string)
         .collect();
     if !missing.is_empty() {
-        return Err(format!("pages {} are missing", missing.join(", ")));
+        return Err(format!(
+            "pages {} are missing",
+            pages::join_numbers(&missing)
+        ));
     }
     Ok(())
 }
@@ -244,7 +270,10 @@ pub fn parse_groups(line: &str) -> Result<Vec<Group>, String> {
                 .split(',')
                 .map(str::trim)
                 .filter(|p| !p.is_empty())
-                .map(|p| p.parse::<u32>().map_err(|_| format!("'{p}' is not a page number")))
+                .map(|p| {
+                    p.parse::<u32>()
+                        .map_err(|_| format!("'{p}' is not a page number"))
+                })
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Group {
                 title: String::new(),
@@ -315,8 +344,13 @@ mod tests {
     #[test]
     fn schema_for_the_model_has_only_the_answer_fields() {
         let schema = serde_json::to_string(&schemars::schema_for!(Plan)).unwrap();
-        assert!(schema.contains("documents") && schema.contains("pages") && schema.contains("title"));
-        assert!(!schema.contains("missing"), "internal field leaked into the schema: {schema}");
+        assert!(
+            schema.contains("documents") && schema.contains("pages") && schema.contains("title")
+        );
+        assert!(
+            !schema.contains("missing"),
+            "internal field leaked into the schema: {schema}"
+        );
     }
 
     #[test]
@@ -332,9 +366,21 @@ mod tests {
     #[test]
     fn rejects_bad_plans() {
         let content = [1, 2, 3];
-        assert!(validate(&[group(&[1, 2])], &content, &content).unwrap_err().contains("missing"));
-        assert!(validate(&[group(&[1, 2, 2, 3])], &content, &content).unwrap_err().contains("twice"));
-        assert!(validate(&[group(&[1, 2, 3, 9])], &content, &content).unwrap_err().contains("9"));
+        assert!(
+            validate(&[group(&[1, 2])], &content, &content)
+                .unwrap_err()
+                .contains("missing")
+        );
+        assert!(
+            validate(&[group(&[1, 2, 2, 3])], &content, &content)
+                .unwrap_err()
+                .contains("twice")
+        );
+        assert!(
+            validate(&[group(&[1, 2, 3, 9])], &content, &content)
+                .unwrap_err()
+                .contains("9")
+        );
         assert!(validate(&[], &content, &content).is_err());
         assert!(parse_plan("no json here", &content).is_err());
         assert!(parse_plan(r#"{"documents": "oops"}"#, &content).is_err());
@@ -365,8 +411,14 @@ mod tests {
 
     #[test]
     fn parses_typed_page_order() {
-        assert_eq!(parse_groups("3,1,2; 5, 4;").unwrap(), [group(&[3, 1, 2]), group(&[5, 4])]);
-        assert_eq!(parse_groups("1,6,4,5,2").unwrap(), [group(&[1, 6, 4, 5, 2])]);
+        assert_eq!(
+            parse_groups("3,1,2; 5, 4;").unwrap(),
+            [group(&[3, 1, 2]), group(&[5, 4])]
+        );
+        assert_eq!(
+            parse_groups("1,6,4,5,2").unwrap(),
+            [group(&[1, 6, 4, 5, 2])]
+        );
         assert!(parse_groups("1, x").is_err());
     }
 }

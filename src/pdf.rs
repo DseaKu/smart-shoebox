@@ -68,7 +68,10 @@ thread_local! {
 /// understand, e.g. a page using a font that does not exist. Without this, one
 /// odd file would end a whole batch run. The panic's own message is silenced only
 /// while a guarded call runs; panics anywhere else are reported as usual.
-pub fn guarded<T, E: std::fmt::Display>(path: &Path, call: impl FnOnce() -> Result<T, E>) -> crate::Res<T> {
+pub fn guarded<T, E: std::fmt::Display>(
+    path: &Path,
+    call: impl FnOnce() -> Result<T, E>,
+) -> crate::Res<T> {
     static QUIET_HOOK: Once = Once::new();
     QUIET_HOOK.call_once(|| {
         let default = panic::take_hook();
@@ -154,8 +157,10 @@ mod tests {
             Operation::new("Tj", vec![Object::string_literal("Hi")]),
             Operation::new("ET", vec![]),
         ];
-        let content_id =
-            doc.add_object(Stream::new(dictionary! {}, Content { operations: ops }.encode().unwrap()));
+        let content_id = doc.add_object(Stream::new(
+            dictionary! {},
+            Content { operations: ops }.encode().unwrap(),
+        ));
         let page_id = doc.add_object(dictionary! {
             "Type" => "Page", "Parent" => pages_id, "Contents" => content_id,
             "Resources" => dictionary! { "Font" => fonts },
@@ -163,7 +168,9 @@ mod tests {
         });
         doc.objects.insert(
             pages_id,
-            Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1 }),
+            Object::Dictionary(
+                dictionary! { "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1 },
+            ),
         );
         let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
         doc.trailer.set("Root", catalog);

@@ -1,16 +1,17 @@
-mod commands;
+mod add;
 mod complete;
 mod config;
 mod entry;
 mod export;
+mod find;
 mod hash;
 mod index;
 mod llm;
+mod merge;
 mod naming;
 mod pages;
 mod pdf;
 mod pdfdoc;
-mod pipeline;
 mod prompt;
 mod rename;
 mod roles;
@@ -154,20 +155,26 @@ async fn run(command: Command) -> Res<()> {
         }
         Command::Add { file } => {
             let (ws, config, llm) = open_box()?;
-            commands::add(&config, &ws, &llm, &file).await
+            add::run(&config, &ws, &llm, &file).await
         }
         Command::Find { question, to } => {
             let (ws, config, llm) = open_box()?;
-            commands::find(&config, &ws, &llm, &question.join(" "), to.as_deref()).await
+            find::run(&config, &ws, &llm, &question.join(" "), to.as_deref()).await
         }
         Command::Name { files } => {
             let (ws, config, llm) = open_box()?;
             rename::run(&config, &ws, &llm, &files).await
         }
-        Command::Merge { files, out } => commands::merge(&files, out.as_deref()),
-        Command::Sort { file, out, delete_blank } => {
+        Command::Merge { files, out } => merge::run(&files, out.as_deref()),
+        Command::Sort {
+            file,
+            out,
+            delete_blank,
+        } => {
             let (_ws, config, llm) = open_box()?;
-            sort::run(&config, &llm, &file, out.as_deref(), delete_blank).await.map(|_| ())
+            sort::run(&config, &llm, &file, out.as_deref(), delete_blank)
+                .await
+                .map(|_| ())
         }
         Command::Check { file, search_in } => {
             let (ws, config, llm) = open_box()?;

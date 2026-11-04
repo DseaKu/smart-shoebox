@@ -109,7 +109,10 @@ mod tests {
         // init again keeps my settings.
         fs::write(ws.config_path(), "model: mine\n").unwrap();
         Workspace::init(&boxdir).unwrap();
-        assert_eq!(fs::read_to_string(ws.config_path()).unwrap(), "model: mine\n");
+        assert_eq!(
+            fs::read_to_string(ws.config_path()).unwrap(),
+            "model: mine\n"
+        );
 
         fs::remove_dir_all(&repo).unwrap();
     }

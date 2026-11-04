@@ -70,7 +70,9 @@ async fn name_one(
             match llm.ask_for::<NameAnswer>(roles::NAMER, &start).await {
                 Ok(answer) => (answer.date, answer.title),
                 Err(e) => {
-                    eprintln!("The model gave no usable answer ({e}); type a name yourself with [e]dit.");
+                    eprintln!(
+                        "The model gave no usable answer ({e}); type a name yourself with [e]dit."
+                    );
                     (String::new(), String::new())
                 }
             }

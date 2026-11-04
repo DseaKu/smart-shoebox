@@ -1,11 +1,11 @@
 use crate::{Res, config::Config};
 use ollama_rs::{
     Ollama,
+    error::OllamaError,
     generation::{
         chat::{ChatMessage, request::ChatMessageRequest},
         parameters::{FormatType, JsonStructure},
     },
-    error::OllamaError,
     models::ModelOptions,
 };
 use schemars::JsonSchema;
@@ -59,13 +59,19 @@ pub trait Model {
     /// Asks for a JSON answer in the structure of `T` and parses it. If the request
     /// fails (e.g. the model aborted) or the answer is unusable, asks once more
     /// with the error. Returns the last error if both attempts fail.
-    async fn ask_for<T: JsonSchema + DeserializeOwned>(&self, role: &str, message: &str) -> Result<T, String> {
+    async fn ask_for<T: JsonSchema + DeserializeOwned>(
+        &self,
+        role: &str,
+        message: &str,
+    ) -> Result<T, String> {
         let mut error = String::new();
         for attempt in 0..2 {
             let prompt = if attempt == 0 {
                 message.to_string()
             } else {
-                format!("{message}\n\nYour previous answer failed: {error}\nAnswer again with valid JSON.")
+                format!(
+                    "{message}\n\nYour previous answer failed: {error}\nAnswer again with valid JSON."
+                )
             };
             match self.ask_structured::<T>(role, &prompt).await {
                 Ok(answer) => match parse_json(&answer) {

@@ -105,7 +105,10 @@ fn similarity(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
 /// The bool marks patterns that can also appear as a reference in running text.
 static PATTERNS: LazyLock<Vec<(Regex, bool)>> = LazyLock::new(|| {
     [
-        (r"(?i)\b(?:seite|page|blatt)\s*(\d{1,3})\s*(?:von|of|aus|/)\s*(\d{1,3})\b", false),
+        (
+            r"(?i)\b(?:seite|page|blatt)\s*(\d{1,3})\s*(?:von|of|aus|/)\s*(\d{1,3})\b",
+            false,
+        ),
         (r"(?m)^\s*(\d{1,3})\s*/\s*(\d{1,3})\s*$", false),
         (r"(?m)^\s*-\s*(\d{1,3})\s*-\s*$", false),
         (r"(?i)\b(?:seite|page)\s*(\d{1,3})\b", true),
@@ -118,8 +121,25 @@ static PATTERNS: LazyLock<Vec<(Regex, bool)>> = LazyLock::new(|| {
 /// Words that turn "Seite 3" into a reference to another page ("auf der Seite 3",
 /// "siehe Seite 3") instead of this page's own number.
 const REFERENCE_WORDS: &[&str] = &[
-    "der", "die", "den", "auf", "siehe", "vgl", "s", "unter", "ab", "bis", "nach", "zur",
-    "folgenden", "nächsten", "naechsten", "letzten", "vorherigen", "see", "on",
+    "der",
+    "die",
+    "den",
+    "auf",
+    "siehe",
+    "vgl",
+    "s",
+    "unter",
+    "ab",
+    "bis",
+    "nach",
+    "zur",
+    "folgenden",
+    "nächsten",
+    "naechsten",
+    "letzten",
+    "vorherigen",
+    "see",
+    "on",
 ];
 
 pub fn printed_page_number(text: &str) -> Option<PrintedNumber> {
@@ -129,11 +149,16 @@ pub fn printed_page_number(text: &str) -> Option<PrintedNumber> {
             if *may_be_reference && preceded_by_reference_word(text, whole.start()) {
                 continue;
             }
-            let Ok(n) = caps[1].parse::<u32>() else { continue };
+            let Ok(n) = caps[1].parse::<u32>() else {
+                continue;
+            };
             let total = caps.get(2).and_then(|t| t.as_str().parse::<u32>().ok());
             match total {
                 Some(total) if n >= 1 && n <= total => {
-                    return Some(PrintedNumber { n, total: Some(total) });
+                    return Some(PrintedNumber {
+                        n,
+                        total: Some(total),
+                    });
                 }
                 Some(_) => continue, // e.g. a date like 14/3, not a page number
                 None if n >= 1 => return Some(PrintedNumber { n, total: None }),
@@ -152,6 +177,15 @@ fn preceded_by_reference_word(text: &str, start: usize) -> bool {
         .trim_matches(|c: char| !c.is_alphanumeric())
         .to_lowercase();
     REFERENCE_WORDS.contains(&word.as_str())
+}
+
+/// Page numbers as a list for messages: "1, 3, 5".
+pub fn join_numbers(numbers: &[u32]) -> String {
+    numbers
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The page text on one line: all of it if short, otherwise start … end,
@@ -200,7 +234,10 @@ mod tests {
     fn ignores_references_to_other_pages() {
         assert_eq!(num("Details finden Sie auf der Seite 3."), None);
         assert_eq!(num("siehe Seite 5"), None);
-        assert_eq!(num("Wie auf Seite 2 beschrieben. Seite 1"), Some("1".into()));
+        assert_eq!(
+            num("Wie auf Seite 2 beschrieben. Seite 1"),
+            Some("1".into())
+        );
     }
 
     #[test]

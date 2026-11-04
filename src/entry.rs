@@ -26,11 +26,7 @@ impl Entry {
 
     /// True if the date looks like YYYY-MM-DD.
     pub fn has_valid_date(&self) -> bool {
-        let b = self.date.as_bytes();
-        b.len() == 10
-            && b[4] == b'-'
-            && b[7] == b'-'
-            && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+        crate::naming::is_iso_date(&self.date)
     }
 }
 

@@ -16,7 +16,10 @@ pub fn move_to_trash(path: &Path) -> Res<PathBuf> {
         .file_name()
         .ok_or_else(|| format!("{} is not a file", path.display()))?;
     let mut dest = trash.join(name);
-    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let mut n = 2;
     while dest.exists() {
         dest = trash.join(format!("{stem} {n}.pdf"));
@@ -24,7 +27,8 @@ pub fn move_to_trash(path: &Path) -> Res<PathBuf> {
     }
     // A rename fails across drives (e.g. a file on a USB stick); copy and remove instead.
     if fs::rename(path, &dest).is_err() {
-        fs::copy(path, &dest).map_err(|e| format!("cannot move {} to the Trash: {e}", path.display()))?;
+        fs::copy(path, &dest)
+            .map_err(|e| format!("cannot move {} to the Trash: {e}", path.display()))?;
         fs::remove_file(path).map_err(|e| format!("cannot remove {}: {e}", path.display()))?;
     }
     Ok(dest)

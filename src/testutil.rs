@@ -79,8 +79,10 @@ pub fn pdf(path: &Path, pages: &[&str]) {
             operations.push(Operation::new("Tj", vec![Object::string_literal(line)]));
         }
         operations.push(Operation::new("ET", vec![]));
-        let content_id =
-            doc.add_object(Stream::new(dictionary! {}, Content { operations }.encode().unwrap()));
+        let content_id = doc.add_object(Stream::new(
+            dictionary! {},
+            Content { operations }.encode().unwrap(),
+        ));
         let page_id = doc.add_object(dictionary! {
             "Type" => "Page", "Parent" => pages_id, "Contents" => content_id,
             "Resources" => dictionary! { "Font" => dictionary! { "F1" => font_id } },

@@ -38,8 +38,15 @@ pub fn parse(index: &str) -> Vec<Row> {
         .map(|line| {
             let mut cols = line.split('\t').map(str::to_string);
             let mut next = || cols.next().unwrap_or_default();
-            let (hash, date, original_name, tags, summary) = (next(), next(), next(), next(), next());
-            Row { hash, date, tags, summary, original_name }
+            let (hash, date, original_name, tags, summary) =
+                (next(), next(), next(), next(), next());
+            Row {
+                hash,
+                date,
+                tags,
+                summary,
+                original_name,
+            }
         })
         .collect()
 }

@@ -20,11 +20,55 @@ const MAX_ROWS_WITH_HITS: usize = 60;
 
 /// Words that say nothing about which document is meant.
 const STOP_WORDS: &[&str] = &[
-    "wo", "ist", "sind", "mein", "meine", "meinen", "meiner", "meines", "der", "die", "das",
-    "den", "dem", "des", "und", "oder", "ich", "habe", "hab", "von", "vom", "fuer", "mit",
-    "ein", "eine", "einen", "wann", "was", "welche", "welcher", "welches", "zum", "zur",
-    "brauche", "suche", "finde", "dokument", "dokumente", "where", "what", "which", "my",
-    "the", "and", "find", "document", "documents", "is", "are",
+    "wo",
+    "ist",
+    "sind",
+    "mein",
+    "meine",
+    "meinen",
+    "meiner",
+    "meines",
+    "der",
+    "die",
+    "das",
+    "den",
+    "dem",
+    "des",
+    "und",
+    "oder",
+    "ich",
+    "habe",
+    "hab",
+    "von",
+    "vom",
+    "fuer",
+    "mit",
+    "ein",
+    "eine",
+    "einen",
+    "wann",
+    "was",
+    "welche",
+    "welcher",
+    "welches",
+    "zum",
+    "zur",
+    "brauche",
+    "suche",
+    "finde",
+    "dokument",
+    "dokumente",
+    "where",
+    "what",
+    "which",
+    "my",
+    "the",
+    "and",
+    "find",
+    "document",
+    "documents",
+    "is",
+    "are",
 ];
 
 /// The finder's answer: numbers of the matching rows, best first.
@@ -79,7 +123,11 @@ pub fn select<'a>(rows: &'a [Row], question: &str, context_size: u64) -> Selecti
         .collect();
     ranked.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| b.1.date.cmp(&a.1.date)));
     let has_hits = ranked.first().is_some_and(|r| r.2 > 0);
-    let max_rows = if has_hits { MAX_ROWS_WITH_HITS } else { usize::MAX };
+    let max_rows = if has_hits {
+        MAX_ROWS_WITH_HITS
+    } else {
+        usize::MAX
+    };
 
     let mut used = 0;
     let mut chosen = Vec::new();
@@ -103,7 +151,6 @@ pub fn select<'a>(rows: &'a [Row], question: &str, context_size: u64) -> Selecti
         rows: chosen,
     }
 }
-
 
 fn line(n: u32, row: &Row) -> String {
     format!(
@@ -175,23 +222,47 @@ mod tests {
     #[test]
     fn small_index_is_sent_completely() {
         let rows = vec![
-            row(1, "2025-11-02", "wohnung,vertrag", "Mietvertrag Wohnung LEG"),
+            row(
+                1,
+                "2025-11-02",
+                "wohnung,vertrag",
+                "Mietvertrag Wohnung LEG",
+            ),
             row(2, "2026-03-14", "steuer", "Steuerbescheid 2025"),
         ];
         let selection = select(&rows, "Wo ist mein rental contract?", 16384);
         assert_eq!(selection.left_out, 0);
         assert_eq!(selection.rows.len(), 2);
-        assert!(selection.prompt_lines().starts_with("#1 | 2025-11-02 | wohnung,vertrag"));
+        assert!(
+            selection
+                .prompt_lines()
+                .starts_with("#1 | 2025-11-02 | wohnung,vertrag")
+        );
     }
 
     #[test]
     fn large_index_keeps_the_best_matches() {
         let mut rows: Vec<Row> = (0..2000)
-            .map(|i| row(i, "2024-01-01", "rechnung", "Rechnung Baumarkt Material und Werkzeug"))
+            .map(|i| {
+                row(
+                    i,
+                    "2024-01-01",
+                    "rechnung",
+                    "Rechnung Baumarkt Material und Werkzeug",
+                )
+            })
             .collect();
-        rows.push(row(2000, "2019-05-01", "wohnung,vertrag", "Mietvertrag Wohnung LEG, unbefristet"));
+        rows.push(row(
+            2000,
+            "2019-05-01",
+            "wohnung,vertrag",
+            "Mietvertrag Wohnung LEG, unbefristet",
+        ));
         let selection = select(&rows, "Wo sind meine Mietverträge?", 16384);
-        assert!(selection.rows.iter().any(|(n, _)| *n == 2001), "the matching row must be sent");
+        assert!(
+            selection.rows.iter().any(|(n, _)| *n == 2001),
+            "the matching row must be sent"
+        );
         assert_eq!(selection.rows.len(), MAX_ROWS_WITH_HITS);
         assert!(selection.focused);
 
@@ -203,7 +274,12 @@ mod tests {
 
     #[test]
     fn word_endings_still_match() {
-        let r = row(1, "2025-01-01", "rechnung", "Mietvertrag Wohnung, Rechnung Zahnarzt");
+        let r = row(
+            1,
+            "2025-01-01",
+            "rechnung",
+            "Mietvertrag Wohnung, Rechnung Zahnarzt",
+        );
         assert_eq!(score(&r, &terms("Mietverträge")), 1);
         assert_eq!(score(&r, &terms("Rechnungen")), 1);
         assert_eq!(score(&r, &terms("Versicherung")), 0);
@@ -218,8 +294,15 @@ mod tests {
 
     #[test]
     fn answer_numbers_map_back_to_sent_rows_only() {
-        let rows = [row(1, "2025-01-01", "a", "Eins"), row(2, "2025-01-02", "b", "Zwei")];
-        let selection = Selection { rows: vec![(2, &rows[1])], left_out: 1, focused: true };
+        let rows = [
+            row(1, "2025-01-01", "a", "Eins"),
+            row(2, "2025-01-02", "b", "Zwei"),
+        ];
+        let selection = Selection {
+            rows: vec![(2, &rows[1])],
+            left_out: 1,
+            focused: true,
+        };
         let answer: Answer = crate::llm::parse_json(r#"{"matches": [2, 1, 2, 99]}"#).unwrap();
         let found = selection.resolve(&answer);
         assert_eq!(found.len(), 1);

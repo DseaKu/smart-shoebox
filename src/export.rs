@@ -14,7 +14,11 @@ pub enum Copied {
 pub fn copy_to(ws: &Workspace, row: &Row, dir: &Path) -> Res<Copied> {
     let src = store::path(ws, &row.hash);
     if !src.exists() {
-        return Err(format!("{} is in the index but missing from the store", src.display()).into());
+        return Err(format!(
+            "{} is in the index but missing from the store",
+            src.display()
+        )
+        .into());
     }
     fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
 

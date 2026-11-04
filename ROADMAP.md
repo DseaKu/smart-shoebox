@@ -78,13 +78,15 @@ and there is no per-command help.
       7 tests, plus `name`). Checked that they catch bugs: with the page ordering
       in `sort` deliberately broken, the `sort` and `check` tests fail.
 
-## 6. Tidy-up (lower)
+## 6. Tidy-up (lower) — done
 
-- [ ] Merge duplicate helpers: one for free file names
+- [x] Merge duplicate helpers: one for free file names
       (`pdfdoc::output_path`, `naming::free_path`), one date check
-      (`naming::is_iso_date`, `Entry::has_valid_date`), one number-list `join`.
-- [ ] Give `add`, `find` and `merge` their own modules like the other commands,
-      and remove `commands.rs`.
+      (`naming::is_iso_date`, `Entry::has_valid_date`), one number-list `join`
+      (`pages::join_numbers`).
+- [x] Give `add`, `find` and `merge` their own modules like the other commands,
+      and remove `commands.rs` (and `pipeline.rs`: each command now has its AI
+      call next to its flow). Also formatted everything with `cargo fmt`.
 
 ## Not planned for now
 
