@@ -112,16 +112,16 @@ a3f9…   2026-03-14  bescheid.pdf      steuer,finanzamt  Steuerbescheid 2025, N
 7c21…   2025-11-02  mietvertrag.pdf   wohnung,vertrag   Mietvertrag Wohnung, unbefristet, Kaltmiete 780 €
 ```
 
-## Commands (planned)
+## Commands
 
 | Command             | What it does                                                                                                                                                                                      |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `init [folder]`    | Create a box (default `box/`): `shoebox.yaml` with default settings, `store/` and an empty `index.tsv`. Existing files are kept. |
-| `add <file>…`       | Hash the PDF, copy it into `store/`, extract text, let the AI propose date, tags and summary, then ask me to accept or edit, and append the row to `index.tsv`. `--move` moves instead of copies. |
+| `add <file>…`       | Hash the PDF, copy it into `store/`, extract text, let the AI propose date, tags and summary, then ask me to accept or edit, and append the row to `index.tsv`. |
 | `find "<question>" [--to <folder>]` | Give the AI the index and the question; it returns the matching row(s) and the path(s). With `--to`, copies the matches into that folder with a readable name like `2026-03-14_steuerbescheid-finanzamt-muenchen-nachzahlung.pdf`. |
 | `merge <a.pdf> <b.pdf>… [--out <file.pdf>]` | Append the PDFs, in the given order, into one PDF (default `<a>_merged.pdf`). No AI, no OCR. |
 | `sort <scan.pdf> [--out <file.pdf>]` | Let the AI put the pages of one PDF into reading order, then ask me to accept or edit. Writes one PDF with exactly the same pages (default `<scan>_sorted.pdf`). |
-| `verify`            | Rehash every file in `store/` and compare with the index. Reports missing, unknown or corrupted files.                                                                                            |
+| `verify` (planned) | Rehash every file in `store/` and compare with the index. Reports missing, unknown or corrupted files.                                                                                            |
 
 ### Adding a document
 
@@ -206,9 +206,23 @@ the only pages it leaves out are duplicate scans:
   Smart Shoebox is deliberately small and transparent.
 - No web interface, no sync, no multi-user support.
 
+## Decided
+
+- **Language:** Rust, starting from my earlier Rust/Ollama agent program.
+- **AI backend:** local models only, through Ollama, so documents never leave
+  my machine. The model is set in `shoebox.yaml`.
+- **Summary language:** the language of the document (usually German).
+- **`add` copies, it does not move:** the original file is never touched.
+
 ## Open questions
 
-- Language and runtime of the tool (Python is the quickest start).
-- Which AI backend `add` and `find` should call (cloud API or local model).
-- Language of the summaries (German, matching the documents, or English).
-- Whether `add` copies or moves by default (planned: copy, with `--move`).
+- `verify` and `add --move` are planned but not built yet.
+- Small models reuse existing tags too eagerly (e.g. tagging an insurance
+  letter `steuer` because that tag already exists). Better role prompts or a
+  bigger model?
+- A `split` command for stacks with several letters, now that `sort` only
+  reorders pages.
+
+## License
+
+[MIT](LICENSE) © 2026 Volker Kuntner
