@@ -4,7 +4,7 @@ use crate::{
     pages::{self, Page},
     sort::{self, Group},
 };
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -150,6 +150,19 @@ pub fn confirm(mut entry: Entry) -> Res<Option<Entry>> {
     }
 }
 
+/// Throws away keys typed while the program was busy (OCR, AI), so an early or
+/// accidental keypress cannot answer a question it was not meant for.
+/// Only for a real terminal; piped input (scripts, tests) is kept.
+fn discard_typeahead() {
+    #[cfg(unix)]
+    if io::stdin().is_terminal() {
+        // SAFETY: tcflush only drops pending input on the stdin file descriptor.
+        unsafe {
+            libc::tcflush(libc::STDIN_FILENO, libc::TCIFLUSH);
+        }
+    }
+}
+
 /// Reads one trimmed, lowercased answer. `None` means stdin was closed.
 fn ask(prompt: &str) -> Res<Option<String>> {
     print!("{prompt}");
@@ -158,6 +171,7 @@ fn ask(prompt: &str) -> Res<Option<String>> {
         return Ok(Some("y".to_string()));
     }
     io::stdout().flush()?;
+    discard_typeahead();
     let mut line = String::new();
     if io::stdin().read_line(&mut line)? == 0 {
         return Ok(None);

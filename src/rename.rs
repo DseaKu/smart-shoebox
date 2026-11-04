@@ -15,7 +15,7 @@ pub async fn run(config: &Config, ws: &Workspace, files: &[PathBuf]) -> Res<()> 
     let llm = Llm::new(config);
     let mut failed = 0;
     for file in files {
-        if let Err(e) = name_one(config, &llm, &rows, file).await {
+        if let Err(e) = name_one(config, &llm, &rows, file, None).await {
             eprintln!("error: {}: {e}", file.display());
             failed += 1;
         }
@@ -27,12 +27,20 @@ pub async fn run(config: &Config, ws: &Workspace, files: &[PathBuf]) -> Res<()> 
 }
 
 /// Names a single file, e.g. for `check`.
-pub async fn name_file(config: &Config, ws: &Workspace, file: &Path) -> Res<()> {
+/// `text` is the document's text if the caller already has it (e.g. `check`
+/// after its own OCR), so it is not read and OCR'd a second time.
+pub async fn name_file(config: &Config, ws: &Workspace, file: &Path, text: Option<&str>) -> Res<()> {
     let rows = index::parse(&index::read(&ws.index_path())?);
-    name_one(config, &Llm::new(config), &rows, file).await
+    name_one(config, &Llm::new(config), &rows, file, text).await
 }
 
-async fn name_one(config: &Config, llm: &Llm, rows: &[index::Row], file: &Path) -> Res<()> {
+async fn name_one(
+    config: &Config,
+    llm: &Llm,
+    rows: &[index::Row],
+    file: &Path,
+    known_text: Option<&str>,
+) -> Res<()> {
     if !file.is_file() {
         return Err("does not exist".into());
     }
@@ -46,7 +54,10 @@ async fn name_one(config: &Config, llm: &Llm, rows: &[index::Row], file: &Path) 
     let (date, title) = match rows.iter().find(|row| row.hash == hash) {
         Some(row) => (row.date.clone(), row.summary.clone()),
         None => {
-            let text = pdf::extract_text(file, &config.ocr_language)?;
+            let text = match known_text {
+                Some(text) => text.to_string(),
+                None => pdf::extract_text(file, &config.ocr_language)?,
+            };
             let start: String = text.chars().take(MAX_TEXT_CHARS).collect();
             eprintln!("Asking {} for a name for {}…", config.model, file.display());
             parse_answer(&llm.ask(roles::NAMER, &start).await?)

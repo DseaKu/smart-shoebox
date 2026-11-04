@@ -101,7 +101,11 @@ pub async fn check(
         && !naming::is_readable(&file_stem(&current))
         && prompt::ask_yes_no(&format!("Give {} a readable name? [y]es / [n]o: ", current.display()))?
     {
-        rename::name_file(config, ws, &current).await?;
+        // The original was read (and OCR'd) above already; a merged result is searchable.
+        let text = (current == file).then(|| {
+            scan.pages.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("\n")
+        });
+        rename::name_file(config, ws, &current, text.as_deref()).await?;
     }
     Ok(())
 }

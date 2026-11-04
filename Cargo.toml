@@ -5,6 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+libc = "0.2.191"
 lopdf = "0.42"
 ollama-rs = "0.3.6"
 pdf-extract = "0.12.1"
