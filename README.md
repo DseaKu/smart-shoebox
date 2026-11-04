@@ -149,9 +149,17 @@ It skips my review, so wrong AI proposals go through unchecked.
 ### Finding a document
 
 1. I ask a question in plain language.
-2. The AI reads `index.tsv` (it fits in context for a few thousand rows, so no
-   embeddings or vector database are needed).
-3. The answer is the row and the path `store/<hash>.pdf`.
+2. In code, the rows are ranked by the question's words (also with other
+   endings, e.g. "Mietverträge" finds "Mietvertrag") and years, then by date.
+3. The AI gets numbered rows (`#12 | date | tags | summary | file name`) and
+   answers with the numbers of the matches, as JSON. Numbers it was not given
+   are ignored.
+   - If rows match the question's words, only the best 60 are sent: small
+     models miss the right row in a long list even when it is there.
+   - Otherwise as many rows as fit into `context_size` are sent, so the AI can
+     match by meaning ("rental contract" → "Mietvertrag"). About 300 rows fit
+     into 16384 tokens; with a bigger box, `find` says how many it searched.
+4. The answer is the row and the path `store/<hash>.pdf`.
 
 ### Sorting scans
 
@@ -246,6 +254,8 @@ shoebox check input/nebenkostenabrechnung.pdf
 - **`add` copies, it does not move:** the original file is never touched.
 
 ## Open questions
+
+Planned changes are listed in [ROADMAP.md](ROADMAP.md).
 
 - `verify` and `add --move` are planned but not built yet.
 - Small models reuse existing tags too eagerly (e.g. tagging an insurance

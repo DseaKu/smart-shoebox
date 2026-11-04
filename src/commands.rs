@@ -1,6 +1,6 @@
 use crate::{
     Res, config::Config, entry::Entry, export, hash, index, llm::Llm, pdf, pdfdoc, pipeline,
-    prompt, store, trash, workspace::Workspace,
+    prompt, search, store, trash, workspace::Workspace,
 };
 use std::path::{Path, PathBuf};
 
@@ -76,10 +76,24 @@ pub async fn find(config: &Config, ws: &Workspace, question: &str, to: Option<&P
         return Err("index.tsv is empty, nothing to search yet.".into());
     }
     let rows = index::parse(&index);
+    let selection = search::select(&rows, question, config.context_size);
+    if selection.left_out > 0 && selection.focused {
+        eprintln!(
+            "Searching the {} of {} documents that match your words best.",
+            selection.rows.len(),
+            rows.len()
+        );
+    } else if selection.left_out > 0 {
+        eprintln!(
+            "Searching {} of {} documents (the newest); the rest do not fit into the model's \
+             context. Use words from the document, or raise context_size in shoebox.yaml.",
+            selection.rows.len(),
+            rows.len()
+        );
+    }
 
     let llm = Llm::new(config);
-    let answer = pipeline::find(&llm, &index, question).await?;
-    let matches = select(&rows, &answer);
+    let matches = pipeline::find(&llm, &selection, question).await?;
     if matches.is_empty() {
         println!("No matching document found.");
         return Ok(());
@@ -108,24 +122,4 @@ pub async fn find(config: &Config, ws: &Workspace, question: &str, to: Option<&P
         return Err("some documents could not be copied".into());
     }
     Ok(())
-}
-
-/// Picks the rows whose hash the model named, in the model's order.
-/// Accepts a unique hash prefix of at least 8 characters, because small models
-/// sometimes shorten hashes. Anything that is not a known hash is ignored.
-fn select<'a>(rows: &'a [index::Row], answer: &str) -> Vec<&'a index::Row> {
-    let mut selected: Vec<&index::Row> = Vec::new();
-    let tokens = answer
-        .split(|c: char| !c.is_ascii_hexdigit())
-        .filter(|t| t.len() >= 8)
-        .map(str::to_lowercase);
-    for token in tokens {
-        let mut hits = rows.iter().filter(|r| r.hash.starts_with(&token));
-        if let (Some(row), None) = (hits.next(), hits.next())
-            && !selected.iter().any(|s| s.hash == row.hash)
-        {
-            selected.push(row);
-        }
-    }
-    selected
 }

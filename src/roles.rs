@@ -58,9 +58,9 @@ Answer only with JSON in this form:
 {"documents": [{"title": "short description", "pages": [3, 1, 2]}]}"#;
 
 /// `find`: picks matching rows from the index.
-pub const FINDER: &str = "\
-You help find documents in a private paperwork archive.
-You get the index as tab-separated rows with the columns hash, date, original_name, tags, summary, and a question.
-Answer with only the hash of each matching row, one per line, best match first.
-If several rows could match, list them all. If nothing matches, answer: none
-Write no other text. Never invent hashes.";
+pub const FINDER: &str = r#"You help find documents in a private paperwork archive.
+You get rows of the index and a question. Each row starts with its number:
+#12 | date | tags | summary | original file name
+Answer with the numbers of the rows that match the question, best match first. Match by meaning, not only by exact words (e.g. "rental contract" matches "Mietvertrag Wohnung").
+If several rows could match, list them all. If nothing matches, answer with an empty list. Never invent numbers.
+Answer only with JSON in this form: {"matches": [12, 4]}"#;

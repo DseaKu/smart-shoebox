@@ -15,6 +15,7 @@ mod prompt;
 mod rename;
 mod roles;
 mod scan;
+mod search;
 mod sort;
 mod store;
 mod trash;
