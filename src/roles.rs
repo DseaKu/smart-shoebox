@@ -10,6 +10,7 @@ Rules:
 - tags are 2 to 4 short, general, lowercase words, e.g. steuer, finanzamt, versicherung, wohnung, vertrag, rechnung, gesundheit, auto, bank. No names, places, amounts or dates in tags; those belong in the summary.
 - Reuse tags from the list of existing tags whenever one fits. Create a new tag only if none fit.
 - summary is one line in the language of the document, with the key facts: what kind of document, who issued it, amounts, periods.
+- Write the summary with normal capitalization, as in the document (in German, nouns and names start with a capital letter), e.g. \"Steuerbescheid 2025 vom Finanzamt München, Nachzahlung 312 €\". Never all lowercase.
 - Use only facts that appear in the text.
 Answer only with JSON in this form:
 {\"date\": \"YYYY-MM-DD\", \"tags\": [\"tag1\", \"tag2\"], \"summary\": \"one line\"}";
@@ -19,7 +20,7 @@ pub const REVIEWER: &str = "\
 You check a proposed index entry (as JSON) for a private paperwork archive against the document text.
 Verify that:
 - the date is the date of the document itself and is correct,
-- the summary matches the text and contains no invented facts,
+- the summary matches the text and contains no invented facts, and uses normal capitalization (never all lowercase),
 - the tags reuse existing tags where one fits, instead of near-duplicates (e.g. steuer vs. steuern vs. tax).
 Answer only with the corrected entry as JSON in the same form:
 {\"date\": \"YYYY-MM-DD\", \"tags\": [\"tag1\", \"tag2\"], \"summary\": \"one line\"}";
