@@ -45,7 +45,7 @@ pub fn confirm_name(file: &Path, suggestion: &str) -> Res<Option<String>> {
 
 /// Shows the new page order and asks me to accept, edit or reject it.
 /// Returns `None` if I reject it.
-pub fn confirm_sort(mut groups: Vec<Group>, pages: &[Page]) -> Res<Option<Vec<Group>>> {
+pub fn confirm_sort(mut groups: Vec<Group>, pages: &[Page], delete_blank: bool) -> Res<Option<Vec<Group>>> {
     let all: Vec<u32> = pages.iter().map(|p| p.number).collect();
     let content: Vec<u32> = pages.iter().filter(|p| p.is_content()).map(|p| p.number).collect();
     loop {
@@ -68,14 +68,15 @@ pub fn confirm_sort(mut groups: Vec<Group>, pages: &[Page]) -> Res<Option<Vec<Gr
             }
         }
         let unplaced = |p: &&Page| !groups.iter().any(|g| g.pages.contains(&p.number));
-        let blank_at_end: Vec<String> = pages
+        let blank: Vec<String> = pages
             .iter()
             .filter(unplaced)
             .filter(|p| p.blank)
             .map(|p| p.number.to_string())
             .collect();
-        if !blank_at_end.is_empty() {
-            println!("Blank pages, moved to the end: {}", blank_at_end.join(", "));
+        if !blank.is_empty() {
+            let what = if delete_blank { "removed" } else { "moved to the end" };
+            println!("Blank pages, {what}: {}", blank.join(", "));
         }
         let duplicates: Vec<String> = pages
             .iter()
@@ -92,7 +93,8 @@ pub fn confirm_sort(mut groups: Vec<Group>, pages: &[Page]) -> Res<Option<Vec<Gr
             Some("n" | "no") | None => return Ok(None),
             Some("e" | "edit") => {
                 println!("Type the new page order, e.g. 1,6,4,5,2 (';' groups pages: 1,6,4; 5,2).");
-                println!("Every page must be listed, except blank pages (they go to the end)");
+                let blank_rule = if delete_blank { "they are removed" } else { "they go to the end" };
+                println!("Every page must be listed, except blank pages ({blank_rule})");
                 println!("and duplicate scans (left out unless you list them).");
                 let Some(line) = ask("> ")? else { return Ok(None) };
                 match sort::parse_groups(&line)

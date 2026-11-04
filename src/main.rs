@@ -30,7 +30,7 @@ fn usage(program: &str) -> ! {
     eprintln!("       {program} find \"<question>\" [--to <folder>]");
     eprintln!("       {program} name <file.pdf>...");
     eprintln!("       {program} merge <a.pdf> <b.pdf>... [--out <file.pdf>]");
-    eprintln!("       {program} sort <scan.pdf> [--out <file.pdf>]");
+    eprintln!("       {program} sort <scan.pdf> [--out <file.pdf>] [--delete-blank]");
     eprintln!();
     eprintln!("Options: -y, --yes   answer yes to every confirmation (skips my review)");
     eprintln!();
@@ -141,12 +141,16 @@ async fn run() -> Res<()> {
             commands::merge(&files, out.as_deref())
         }
         Some("sort") => {
-            let (files, out) = files_and_out(program, &args[2..]);
+            let mut rest = args[2..].to_vec();
+            let count = rest.len();
+            rest.retain(|arg| arg != "--delete-blank");
+            let delete_blank = rest.len() != count;
+            let (files, out) = files_and_out(program, &rest);
             let [file] = files.as_slice() else {
                 usage(program);
             };
             let (_ws, config) = open_box()?;
-            sort::run(&config, file, out.as_deref()).await
+            sort::run(&config, file, out.as_deref(), delete_blank).await
         }
         _ => usage(program),
     }

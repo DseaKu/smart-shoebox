@@ -32,8 +32,9 @@ struct Plan {
 }
 
 /// OCR if needed → AI orders the non-blank pages → I confirm or edit
-/// → one PDF with all pages in the new order (blank pages at the end).
-pub async fn run(config: &Config, input: &Path, out: Option<&Path>) -> Res<()> {
+/// → one PDF with all pages in the new order (blank pages at the end,
+/// or left out with `delete_blank`).
+pub async fn run(config: &Config, input: &Path, out: Option<&Path>, delete_blank: bool) -> Res<()> {
     if !input.is_file() {
         return Err(format!("{} does not exist", input.display()).into());
     }
@@ -65,26 +66,27 @@ pub async fn run(config: &Config, input: &Path, out: Option<&Path>) -> Res<()> {
     // the order, because small models are unreliable at ordering by them.
     order_by_printed_numbers(&mut groups, &pages);
 
-    let Some(groups) = prompt::confirm_sort(groups, &pages)? else {
+    let Some(groups) = prompt::confirm_sort(groups, &pages, delete_blank)? else {
         println!("Nothing written.");
         return Ok(());
     };
 
-    let order = final_order(&groups, &pages);
+    let order = final_order(&groups, &pages, delete_blank);
     pdfdoc::extract_pages(source, &order, &out)?;
     println!("Wrote {} ({} pages)", out.display(), order.len());
     Ok(())
 }
 
-/// The result: the groups one after another, then any blank page not placed yet.
-/// Duplicates are left out unless they were placed by hand.
-pub fn final_order(groups: &[Group], pages: &[Page]) -> Vec<u32> {
+/// The result: the groups one after another, then any blank page not placed yet
+/// (unless `delete_blank`). Pages placed by hand are always kept; duplicates
+/// are left out unless they were placed by hand.
+pub fn final_order(groups: &[Group], pages: &[Page], delete_blank: bool) -> Vec<u32> {
     let mut order: Vec<u32> = groups.iter().flat_map(|g| g.pages.iter().copied()).collect();
     let placed: HashSet<u32> = order.iter().copied().collect();
     order.extend(
         pages
             .iter()
-            .filter(|p| p.blank && !placed.contains(&p.number))
+            .filter(|p| p.blank && !delete_blank && !placed.contains(&p.number))
             .map(|p| p.number),
     );
     order
@@ -286,8 +288,8 @@ mod tests {
         let text = page(1, "Seite 1");
         let pages = pages::analyze(vec![text.clone(), text, "".into()]);
         assert_eq!(pages[1].duplicate_of, Some(1));
-        assert_eq!(final_order(&[group(&[1])], &pages), [1, 3]);
-        assert_eq!(final_order(&[group(&[1, 2])], &pages), [1, 2, 3]);
+        assert_eq!(final_order(&[group(&[1])], &pages, false), [1, 3]);
+        assert_eq!(final_order(&[group(&[1, 2])], &pages, false), [1, 2, 3]);
     }
 
     #[test]
@@ -327,8 +329,11 @@ mod tests {
             "".into(),
             "Seite drei mit genug Text darauf".into(),
         ]);
-        assert_eq!(final_order(&[group(&[3, 1])], &pages), [3, 1, 2]);
-        assert_eq!(final_order(&[group(&[3, 2, 1])], &pages), [3, 2, 1]);
+        assert_eq!(final_order(&[group(&[3, 1])], &pages, false), [3, 1, 2]);
+        assert_eq!(final_order(&[group(&[3, 2, 1])], &pages, false), [3, 2, 1]);
+        // With --delete-blank, unplaced blank pages are dropped, placed ones are kept.
+        assert_eq!(final_order(&[group(&[3, 1])], &pages, true), [3, 1]);
+        assert_eq!(final_order(&[group(&[3, 2, 1])], &pages, true), [3, 2, 1]);
     }
 
     #[test]

@@ -121,7 +121,7 @@ a3f9…   2026-03-14  bescheid.pdf      steuer,finanzamt  Steuerbescheid 2025, N
 | `find "<question>" [--to <folder>]` | Give the AI the index and the question; it returns the matching row(s) and the path(s). With `--to`, copies the matches into that folder with a readable name like `2026-03-14_steuerbescheid-finanzamt-muenchen-nachzahlung.pdf`. |
 | `name <file.pdf>…`  | Rename PDFs in place to a readable name like `2026-03-14_steuerbescheid-2025-finanzamt-muenchen.pdf`. Documents already in the box are named from the index; others get a date and short title from the AI. I confirm or edit each name; existing files are never overwritten. |
 | `merge <a.pdf> <b.pdf>… [--out <file.pdf>]` | Append the PDFs, in the given order, into one PDF (default `<a>_merged.pdf`). No AI, no OCR. |
-| `sort <scan.pdf> [--out <file.pdf>]` | Let the AI put the pages of one PDF into reading order, then ask me to accept or edit. Writes one PDF with exactly the same pages (default `<scan>_sorted.pdf`). |
+| `sort <scan.pdf> [--out <file.pdf>] [--delete-blank]` | Let the AI put the pages of one PDF into reading order, then ask me to accept or edit. Writes one PDF with the same pages (default `<scan>_sorted.pdf`); blank pages go to the end, or are left out with `--delete-blank`. |
 | `verify` (planned) | Rehash every file in `store/` and compare with the index. Reports missing, unknown or corrupted files.                                                                                            |
 
 `-y` / `--yes` (anywhere on the command line) answers yes to every
@@ -179,8 +179,9 @@ the only pages it leaves out are duplicate scans:
    without a number fill the gaps (usually page 1 with the letterhead), and
    numbers still missing are reported ("printed page 6 is not in the scan").
 5. I confirm or edit the order (e.g. `1,6,4,5,2`). Blank pages go to the end
-   unless I place them; duplicates are left out unless I list them. The
-   original scan is never changed.
+   unless I place them (with `--delete-blank` they are left out instead);
+   duplicates are left out unless I list them. The original scan is never
+   changed.
 
 ## Design decisions
 
