@@ -74,7 +74,6 @@ pub fn completeness(pages: &[Page]) -> Report {
     }
 }
 
-/// `check <file>`: prints the report; if pages are missing, offers to look for them.
 /// `check <file>`: a general health check. Reports pages, the file name and
 /// whether it is in the box; then offers the fixes: first the counterpart
 /// (if pages are missing), then a readable name (for the result, if one was made).
@@ -85,33 +84,17 @@ pub async fn check(
     file: &Path,
     search_in: Option<&Path>,
 ) -> Res<()> {
-    let scan = Scan::read(file, &config.ocr_language)?;
-    let report = completeness(&scan.pages);
-    print_report(file, &scan.pages, &report);
-
-    let stem = file_stem(file);
-    if naming::is_readable(&stem) {
-        println!("  name: ok");
-    } else {
-        println!(
-            "  name: \"{stem}\" is not readable (like 2026-03-14_steuerbescheid-2025-finanzamt-muenchen)"
-        );
-    }
-    let hash = hash::sha256_file(file)?;
-    if index::contains(&index::read(&ws.index_path())?, &hash) {
-        println!(
-            "  box: already added ({})",
-            store::path(ws, &hash).display()
-        );
-    } else {
-        println!("  box: not added yet");
+    let diagnosis = diagnose(config, ws, file)?;
+    for line in &diagnosis.lines {
+        println!("{line}");
     }
     println!();
+    let (scan, report) = (&diagnosis.scan, &diagnosis.report);
 
     let mut current = file.to_path_buf();
     if report.is_incomplete()
         && prompt::ask_yes_no("Search for the counterpart? [y]es / [n]o: ")?
-        && let Some(result) = find_counterpart(config, llm, file, &scan, &report, search_in).await?
+        && let Some(result) = find_counterpart(config, llm, file, scan, report, search_in).await?
     {
         current = result;
     }
@@ -123,16 +106,66 @@ pub async fn check(
         ))?
     {
         // The original was read (and OCR'd) above already; a merged result is searchable.
-        let text = (current == file).then(|| {
-            scan.pages
-                .iter()
-                .map(|p| p.text.as_str())
-                .collect::<Vec<_>>()
-                .join("\n")
-        });
+        let text = (current == file).then(|| diagnosis.text());
         rename::name_file(config, ws, llm, &current, text.as_deref()).await?;
     }
     Ok(())
+}
+
+/// The result of a check, before any fix.
+pub struct Diagnosis {
+    pub scan: Scan,
+    pub report: Report,
+    /// The report as I read it: pages, name, box.
+    pub lines: Vec<String>,
+    pub readable_name: bool,
+    pub in_box: bool,
+}
+
+impl Diagnosis {
+    /// The text of all pages, e.g. for naming without a second OCR.
+    pub fn text(&self) -> String {
+        self.scan
+            .pages
+            .iter()
+            .map(|p| p.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+/// Reads the scan (OCR if needed) and checks pages, name and box. No AI.
+pub fn diagnose(config: &Config, ws: &Workspace, file: &Path) -> Res<Diagnosis> {
+    let scan = Scan::read(file, &config.ocr_language)?;
+    let report = completeness(&scan.pages);
+    let mut lines = report_lines(file, &scan.pages, &report);
+
+    let stem = file_stem(file);
+    let readable_name = naming::is_readable(&stem);
+    if readable_name {
+        lines.push("  name: ok".into());
+    } else {
+        lines.push(format!(
+            "  name: \"{stem}\" is not readable (like 2026-03-14_steuerbescheid-2025-finanzamt-muenchen)"
+        ));
+    }
+    let hash = hash::sha256_file(file)?;
+    let in_box = index::contains(&index::read(&ws.index_path())?, &hash);
+    if in_box {
+        lines.push(format!(
+            "  box: already added ({})",
+            store::path(ws, &hash).display()
+        ));
+    } else {
+        lines.push("  box: not added yet".into());
+    }
+    Ok(Diagnosis {
+        scan,
+        report,
+        lines,
+        readable_name,
+        in_box,
+    })
 }
 
 fn file_stem(path: &Path) -> String {
@@ -151,7 +184,9 @@ pub async fn counterpart(
     let scan = Scan::read(file, &config.ocr_language)?;
     let report = completeness(&scan.pages);
     if !report.is_incomplete() {
-        print_report(file, &scan.pages, &report);
+        for line in report_lines(file, &scan.pages, &report) {
+            println!("{line}");
+        }
         println!("Nothing to look for.");
         return Ok(());
     }
@@ -165,17 +200,22 @@ pub async fn counterpart(
         .map(|_| ())
 }
 
-fn print_report(file: &Path, pages: &[Page], report: &Report) {
+fn report_lines(file: &Path, pages: &[Page], report: &Report) -> Vec<String> {
+    let mut lines = Vec::new();
     let plural = if pages.len() == 1 { "" } else { "s" };
-    println!("{}: {} page{plural}", file.display(), pages.len());
+    lines.push(format!("{}: {} page{plural}", file.display(), pages.len()));
     if report.numbers.is_empty() {
-        println!("  no printed page numbers found, so completeness cannot be checked");
-        return;
+        lines
+            .push("  no printed page numbers found, so completeness cannot be checked".to_string());
+        return lines;
     }
-    println!("  printed page numbers: {}", join_numbers(&report.numbers));
+    lines.push(format!(
+        "  printed page numbers: {}",
+        join_numbers(&report.numbers)
+    ));
     let blank: Vec<u32> = pages.iter().filter(|p| p.blank).map(|p| p.number).collect();
     if !blank.is_empty() {
-        println!("  blank pages: {}", join_numbers(&blank));
+        lines.push(format!("  blank pages: {}", join_numbers(&blank)));
     }
     let duplicates: Vec<String> = pages
         .iter()
@@ -185,22 +225,23 @@ fn print_report(file: &Path, pages: &[Page], report: &Report) {
         })
         .collect();
     if !duplicates.is_empty() {
-        println!("  duplicate scans: {}", duplicates.join(", "));
+        lines.push(format!("  duplicate scans: {}", duplicates.join(", ")));
     }
     if report.several_documents {
-        println!("  page numbers repeat: this scan probably holds several documents");
+        lines.push("  page numbers repeat: this scan probably holds several documents".to_string());
     } else if report.missing.is_empty() {
-        println!("  complete: pages 1–{}", report.last);
-        println!(
+        lines.push(format!("  complete: pages 1–{}", report.last));
+        lines.push(format!(
             "  (pages after {} would not be noticed if no page says \"von N\")",
             report.last
-        );
+        ));
     } else {
-        println!(
+        lines.push(format!(
             "  incomplete: printed page {} not found",
             join_numbers(&report.missing)
-        );
+        ));
     }
+    lines
 }
 
 /// A PDF that holds missing pages of the same document.

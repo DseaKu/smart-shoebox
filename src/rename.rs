@@ -13,10 +13,9 @@ use std::path::{Path, PathBuf};
 const MAX_TEXT_CHARS: usize = 4000;
 
 pub async fn run(config: &Config, ws: &Workspace, llm: &impl Model, files: &[PathBuf]) -> Res<()> {
-    let rows = index::parse(&index::read(&ws.index_path())?);
     let mut failed = 0;
     for file in files {
-        if let Err(e) = name_one(config, llm, &rows, file, None).await {
+        if let Err(e) = name_file(config, ws, llm, file, None).await {
             eprintln!("error: {}: {e}", file.display());
             failed += 1;
         }
@@ -27,7 +26,7 @@ pub async fn run(config: &Config, ws: &Workspace, llm: &impl Model, files: &[Pat
     Ok(())
 }
 
-/// Names a single file, e.g. for `check`.
+/// Names a single file, asking me first.
 /// `text` is the document's text if the caller already has it (e.g. `check`
 /// after its own OCR), so it is not read and OCR'd a second time.
 pub async fn name_file(
@@ -37,17 +36,46 @@ pub async fn name_file(
     file: &Path,
     text: Option<&str>,
 ) -> Res<()> {
-    let rows = index::parse(&index::read(&ws.index_path())?);
-    name_one(config, llm, &rows, file, text).await
+    let proposal = propose(config, ws, llm, file, text).await?;
+    if let Some(e) = &proposal.model_error {
+        eprintln!("The model gave no usable answer ({e}); type a name yourself with [e]dit.");
+    }
+    if proposal.suggestion == proposal.current {
+        println!("{} already has a good name.", file.display());
+        return Ok(());
+    }
+    let Some(stem) = prompt::confirm_name(file, &proposal.suggestion)? else {
+        println!("Not renamed.");
+        return Ok(());
+    };
+    if stem == proposal.current {
+        return Ok(());
+    }
+    let dest = apply(file, &stem)?;
+    println!("Renamed to {}", dest.display());
+    Ok(())
 }
 
-async fn name_one(
+/// A proposed new name for a file.
+pub struct NameProposal {
+    pub file: PathBuf,
+    /// The current name, without `.pdf`.
+    pub current: String,
+    /// The proposed name, without `.pdf` (the current one if nothing better was found).
+    pub suggestion: String,
+    /// Set if the model gave no usable answer.
+    pub model_error: Option<String>,
+}
+
+/// Proposes a readable name. Documents already in the box are named from their
+/// index row, without asking the AI.
+pub async fn propose(
     config: &Config,
+    ws: &Workspace,
     llm: &impl Model,
-    rows: &[index::Row],
     file: &Path,
     known_text: Option<&str>,
-) -> Res<()> {
+) -> Res<NameProposal> {
     if !file.is_file() {
         return Err("does not exist".into());
     }
@@ -56,8 +84,9 @@ async fn name_one(
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    // Documents already in the box are named from their index row, without asking the AI.
+    let rows = index::parse(&index::read(&ws.index_path())?);
     let hash = hash::sha256_file(file)?;
+    let mut model_error = None;
     let (date, title) = match rows.iter().find(|row| row.hash == hash) {
         Some(row) => (row.date.clone(), row.summary.clone()),
         None => {
@@ -70,33 +99,27 @@ async fn name_one(
             match llm.ask_for::<NameAnswer>(roles::NAMER, &start).await {
                 Ok(answer) => (answer.date, answer.title),
                 Err(e) => {
-                    eprintln!(
-                        "The model gave no usable answer ({e}); type a name yourself with [e]dit."
-                    );
+                    model_error = Some(e);
                     (String::new(), String::new())
                 }
             }
         }
     };
-
     let suggestion = naming::stem(&date, &[&title]).unwrap_or_else(|| current.clone());
-    if suggestion == current {
-        println!("{} already has a good name.", file.display());
-        return Ok(());
-    }
-    let Some(stem) = prompt::confirm_name(file, &suggestion)? else {
-        println!("Not renamed.");
-        return Ok(());
-    };
-    if stem == current {
-        return Ok(());
-    }
+    Ok(NameProposal {
+        file: file.to_path_buf(),
+        current,
+        suggestion,
+        model_error,
+    })
+}
 
+/// Renames the file in its folder to `<stem>.pdf` (or `<stem>-2.pdf`, … if taken).
+pub fn apply(file: &Path, stem: &str) -> Res<PathBuf> {
     let dir = file.parent().unwrap_or(Path::new(""));
-    let dest = naming::free_path(dir, &stem);
+    let dest = naming::free_path(dir, stem);
     fs::rename(file, &dest).map_err(|e| format!("cannot rename to {}: {e}", dest.display()))?;
-    println!("Renamed to {}", dest.display());
-    Ok(())
+    Ok(dest)
 }
 
 /// The namer's answer.

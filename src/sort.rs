@@ -42,6 +42,46 @@ pub async fn run(
     out: Option<&Path>,
     delete_blank: bool,
 ) -> Res<Option<PathBuf>> {
+    let plan = propose(config, llm, input, out).await?;
+    let pages = &plan.scan.pages;
+    let Some(groups) = prompt::confirm_sort(plan.groups.clone(), pages, delete_blank)? else {
+        println!("Nothing written.");
+        return Ok(None);
+    };
+
+    // Blank pages I did not place myself: ask whether to delete them,
+    // unless `--delete-blank` already said so.
+    let leftover = leftover_blank(&groups, pages);
+    let delete_blank = delete_blank
+        || (!leftover.is_empty()
+            && prompt::ask_yes_no(&format!(
+                "Delete blank page{} {}? [y]es / [n]o (no: they go to the end): ",
+                if leftover.len() == 1 { "" } else { "s" },
+                pages::join_numbers(&leftover)
+            ))?);
+
+    let (out, count) = write(&plan, &groups, delete_blank)?;
+    println!("Wrote {} ({count} pages)", out.display());
+    Ok(Some(out))
+}
+
+/// A scan, read and grouped, waiting for my confirmation.
+pub struct SortPlan {
+    pub scan: Scan,
+    /// The AI's groups, ordered by printed page numbers.
+    pub groups: Vec<Group>,
+    /// Where the result will be written.
+    pub out: PathBuf,
+}
+
+/// Everything before my confirmation: OCR if needed, the AI's groups, ordering
+/// by printed page numbers. Shared by the command line and the GUI.
+pub async fn propose(
+    config: &Config,
+    llm: &impl Model,
+    input: &Path,
+    out: Option<&Path>,
+) -> Res<SortPlan> {
     if !input.is_file() {
         return Err(format!("{} does not exist", input.display()).into());
     }
@@ -50,46 +90,67 @@ pub async fn run(
     // The result is built from the OCR'd copy when there is one, so it is
     // searchable and straightened, and `add` needs no second OCR.
     let scan = Scan::read(input, &config.ocr_language)?;
-    let pages = &scan.pages;
-    let content: Vec<u32> = pages
-        .iter()
-        .filter(|p| p.is_content())
-        .map(|p| p.number)
-        .collect();
+    let content = content_pages(&scan.pages);
     if content.is_empty() {
         return Err("no text found on any page".into());
     }
 
     eprintln!("Asking {} to sort {} pages…", llm.name(), content.len());
-    let mut groups = ask_for_groups(llm, pages, &content).await?;
+    let mut groups = ask_for_groups(llm, &scan.pages, &content).await?;
     // The AI decides which pages belong together; printed page numbers decide
     // the order, because small models are unreliable at ordering by them.
-    order_by_printed_numbers(&mut groups, pages);
+    order_by_printed_numbers(&mut groups, &scan.pages);
+    Ok(SortPlan { scan, groups, out })
+}
 
-    let Some(groups) = prompt::confirm_sort(groups, pages, delete_blank)? else {
-        println!("Nothing written.");
-        return Ok(None);
-    };
+/// Writes the pages in the order of `groups` (see `final_order`).
+/// Returns the file and its page count.
+pub fn write(plan: &SortPlan, groups: &[Group], delete_blank: bool) -> Res<(PathBuf, usize)> {
+    let order = final_order(groups, &plan.scan.pages, delete_blank);
+    pdfdoc::extract_pages(plan.scan.source(), &order, &plan.out)?;
+    Ok((plan.out.clone(), order.len()))
+}
 
-    // Blank pages I did not place myself: ask whether to delete them,
-    // unless `--delete-blank` already said so.
-    let leftover_blank: Vec<String> = pages
+/// Pages with text, i.e. the ones every order must contain.
+pub fn content_pages(pages: &[Page]) -> Vec<u32> {
+    pages
+        .iter()
+        .filter(|p| p.is_content())
+        .map(|p| p.number)
+        .collect()
+}
+
+/// Blank pages not placed in any group.
+pub fn leftover_blank(groups: &[Group], pages: &[Page]) -> Vec<u32> {
+    pages
         .iter()
         .filter(|p| p.blank && !groups.iter().any(|g| g.pages.contains(&p.number)))
-        .map(|p| p.number.to_string())
-        .collect();
-    let delete_blank = delete_blank
-        || (!leftover_blank.is_empty()
-            && prompt::ask_yes_no(&format!(
-                "Delete blank page{} {}? [y]es / [n]o (no: they go to the end): ",
-                if leftover_blank.len() == 1 { "" } else { "s" },
-                leftover_blank.join(", ")
-            ))?);
+        .map(|p| p.number)
+        .collect()
+}
 
-    let order = final_order(&groups, pages, delete_blank);
-    pdfdoc::extract_pages(scan.source(), &order, &out)?;
-    println!("Wrote {} ({} pages)", out.display(), order.len());
-    Ok(Some(out))
+/// Parses and checks an order I typed (see `parse_groups`): every content page
+/// must be in it; blank pages and duplicates may be.
+pub fn parse_edit(line: &str, pages: &[Page]) -> Result<Vec<Group>, String> {
+    let all: Vec<u32> = pages.iter().map(|p| p.number).collect();
+    let groups = parse_groups(line)?;
+    validate(&groups, &all, &content_pages(pages))?;
+    Ok(groups)
+}
+
+/// The groups as I would type them: `1,6,4; 5,2`.
+pub fn format_groups(groups: &[Group]) -> String {
+    groups
+        .iter()
+        .map(|g| {
+            g.pages
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// The result: the groups one after another, then any blank page not placed yet
@@ -393,6 +454,21 @@ mod tests {
         assert!(validate(&[group(&[3, 2, 1, 4])], &all, &content).is_ok());
         assert!(validate(&[group(&[3, 1, 4])], &all, &content).is_ok());
         assert!(validate(&[group(&[3, 1])], &all, &content).is_err());
+    }
+
+    #[test]
+    fn a_typed_order_round_trips_and_is_checked() {
+        let pages = pages::analyze(vec![page(1, "A"), "".into(), page(3, "C")]);
+        let groups = vec![group(&[3]), group(&[1])];
+        let typed = format_groups(&groups);
+        assert_eq!(typed, "3; 1");
+        assert_eq!(parse_edit(&typed, &pages).unwrap(), groups);
+        assert_eq!(leftover_blank(&groups, &pages), [2]);
+        assert!(parse_edit("1", &pages).is_err(), "page 3 is missing");
+        assert!(
+            parse_edit("1,3,2", &pages).is_ok(),
+            "a blank page may be placed"
+        );
     }
 
     #[test]

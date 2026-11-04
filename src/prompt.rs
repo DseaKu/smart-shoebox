@@ -64,12 +64,6 @@ pub fn confirm_sort(
     pages: &[Page],
     delete_blank: bool,
 ) -> Res<Option<Vec<Group>>> {
-    let all: Vec<u32> = pages.iter().map(|p| p.number).collect();
-    let content: Vec<u32> = pages
-        .iter()
-        .filter(|p| p.is_content())
-        .map(|p| p.number)
-        .collect();
     loop {
         println!();
         for (i, group) in groups.iter().enumerate() {
@@ -136,9 +130,7 @@ pub fn confirm_sort(
                 let Some(line) = ask("> ")? else {
                     return Ok(None);
                 };
-                match sort::parse_groups(&line)
-                    .and_then(|g| sort::validate(&g, &all, &content).map(|_| g))
-                {
+                match sort::parse_edit(&line, pages) {
                     Ok(edited) => groups = edited,
                     Err(e) => println!("Not changed: {e}"),
                 }
