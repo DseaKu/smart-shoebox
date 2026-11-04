@@ -126,6 +126,10 @@ a3f9…   2026-03-14  bescheid.pdf      steuer,finanzamt  Steuerbescheid 2025, N
 | `counterpart <scan.pdf> [--in <folder>]` | Look through the other PDFs in the same folder (or `--in`) for the missing pages. A match must contain a missing page and share at least 2 reference numbers or dates. If I agree, merge and sort both into `<scan>_complete.pdf`, then ask whether to move the two originals to the Trash. |
 | `verify` (planned) | Rehash every file in `store/` and compare with the index. Reports missing, unknown or corrupted files.                                                                                            |
 
+`shoebox --help` lists all commands, and `shoebox <command> --help` (e.g.
+`shoebox sort --help`) shows the options of one; mistyped options and commands
+get a suggestion.
+
 `-y` / `--yes` (anywhere on the command line) answers yes to every
 confirmation in `add`, `name` and `sort`, e.g. `shoebox name -y dummy/*.pdf`.
 It skips my review, so wrong AI proposals go through unchecked.

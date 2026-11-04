@@ -11,5 +11,6 @@ context_size: 16384
 ocr_language: deu
 
 # add: let a second AI call (the reviewer) check the first proposal against the
-# document text. Slower; with small models it often changes little.
-review: true
+# document text. About 3x slower; with small models (qwen3:8b) it made the tags
+# worse in tests, so it is off by default. Worth trying with a bigger model.
+review: false

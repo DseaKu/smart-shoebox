@@ -16,8 +16,10 @@ pub struct Config {
     pub review: bool,
 }
 
+/// Off by default: with small models the reviewer made tags worse, and tripled
+/// the time (see ROADMAP.md, step 3).
 fn default_review() -> bool {
-    true
+    false
 }
 
 fn default_context_size() -> u64 {
