@@ -5,6 +5,43 @@ use crate::{
     sort::{self, Group},
 };
 use std::io::{self, Write};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Set by `-y` / `--yes`: every yes/no question is answered with yes.
+static ASSUME_YES: AtomicBool = AtomicBool::new(false);
+
+pub fn assume_yes() {
+    ASSUME_YES.store(true, Ordering::Relaxed);
+}
+
+/// Shows the proposed file name and asks me to accept, edit or reject it.
+/// Returns the chosen name without `.pdf`, or `None` if I reject it.
+pub fn confirm_name(file: &Path, suggestion: &str) -> Res<Option<String>> {
+    let mut name = suggestion.to_string();
+    loop {
+        println!();
+        println!("  {}", file.display());
+        println!("→ {name}.pdf");
+        match ask("Rename? [y]es / [e]dit / [n]o: ")?.as_deref() {
+            Some("y" | "yes") => return Ok(Some(name)),
+            Some("n" | "no") | None => return Ok(None),
+            Some("e" | "edit") => {
+                let typed = edit("new name (without .pdf)", &name)?;
+                let typed = typed.trim().trim_end_matches(".pdf").trim_end_matches(".PDF");
+                // A name, not a path: no folder separators, no hidden files.
+                let cleaned = typed.replace(['/', '\\', ':'], "-");
+                let cleaned = cleaned.trim_start_matches('.').trim();
+                if cleaned.is_empty() {
+                    println!("Not changed: the name is empty.");
+                } else {
+                    name = cleaned.to_string();
+                }
+            }
+            Some(_) => println!("Please answer y, e or n."),
+        }
+    }
+}
 
 /// Shows the new page order and asks me to accept, edit or reject it.
 /// Returns `None` if I reject it.
@@ -103,6 +140,10 @@ pub fn confirm(mut entry: Entry) -> Res<Option<Entry>> {
 /// Reads one trimmed, lowercased answer. `None` means stdin was closed.
 fn ask(prompt: &str) -> Res<Option<String>> {
     print!("{prompt}");
+    if ASSUME_YES.load(Ordering::Relaxed) {
+        println!("y (--yes)");
+        return Ok(Some("y".to_string()));
+    }
     io::stdout().flush()?;
     let mut line = String::new();
     if io::stdin().read_line(&mut line)? == 0 {

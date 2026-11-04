@@ -30,6 +30,19 @@ date: YYYY-MM-DD
 tags: tag1,tag2
 summary: one line";
 
+/// `name`: proposes the date and a short title for a file name.
+pub const NAMER: &str = r#"You name the files of a private paperwork archive.
+From the start of the document text, answer in exactly this format:
+
+date: YYYY-MM-DD
+title: 3 to 6 words
+
+Rules:
+- date is the date of the document itself (issue date, letter date), not today's date. If there is none, write: date: unknown
+- title says what kind of document it is and who it is from, in the language of the document, e.g. "Steuerbescheid 2025 Finanzamt München", "Mietvertrag LEG Wohnung", "Rechnung Zahnarzt".
+- No amounts, no names of the recipient, no account, customer or contract numbers.
+Output only these two lines."#;
+
 /// `sort`: groups scanned pages into documents and orders each one.
 pub const SORTER: &str = r#"You sort the pages of a scanned stack of private paperwork.
 The scanner is one-sided, so pages are often out of order: fronts and backs come from separate passes, the backs are often in reverse order, and sometimes several letters are mixed in one scan.

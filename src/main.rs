@@ -5,11 +5,13 @@ mod export;
 mod hash;
 mod index;
 mod llm;
+mod naming;
 mod pages;
 mod pdf;
 mod pdfdoc;
 mod pipeline;
 mod prompt;
+mod rename;
 mod roles;
 mod sort;
 mod store;
@@ -26,10 +28,13 @@ fn usage(program: &str) -> ! {
     eprintln!("Usage: {program} init [folder]          (default: {})", workspace::DEFAULT_DIR);
     eprintln!("       {program} add <file.pdf>");
     eprintln!("       {program} find \"<question>\" [--to <folder>]");
+    eprintln!("       {program} name <file.pdf>...");
     eprintln!("       {program} merge <a.pdf> <b.pdf>... [--out <file.pdf>]");
     eprintln!("       {program} sort <scan.pdf> [--out <file.pdf>]");
     eprintln!();
-    eprintln!("add, find and sort use the nearest shoebox: the current folder or one above it,");
+    eprintln!("Options: -y, --yes   answer yes to every confirmation (skips my review)");
+    eprintln!();
+    eprintln!("add, find, name and sort use the nearest shoebox: the current folder or one above it,");
     eprintln!("or its {}/ subfolder. Set SHOEBOX_DIR to use one somewhere else.", workspace::DEFAULT_DIR);
     exit(1);
 }
@@ -68,7 +73,13 @@ async fn main() {
 }
 
 async fn run() -> Res<()> {
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
+    // `-y` / `--yes` may appear anywhere; remove it before reading the command.
+    let count = args.len();
+    args.retain(|arg| arg != "-y" && arg != "--yes");
+    if args.len() != count {
+        prompt::assume_yes();
+    }
     // Only the binary's name, not the full path it was started from.
     let program = args
         .first()
@@ -113,6 +124,14 @@ async fn run() -> Res<()> {
             }
             let (ws, config) = open_box()?;
             commands::find(&config, &ws, &question, to.as_deref()).await
+        }
+        Some("name") => {
+            let files: Vec<PathBuf> = args[2..].iter().map(PathBuf::from).collect();
+            if files.is_empty() {
+                usage(program);
+            }
+            let (ws, config) = open_box()?;
+            rename::run(&config, &ws, &files).await
         }
         Some("merge") => {
             let (files, out) = files_and_out(program, &args[2..]);

@@ -78,7 +78,7 @@ cd box
 shoebox add ~/Downloads/bescheid.pdf
 ```
 
-`add`, `find` and `sort` use the nearest box: the current folder or any folder
+`add`, `find`, `name` and `sort` use the nearest box: the current folder or any folder
 above it, or its `box/` subfolder (so they also work from the repo root). To
 keep the box somewhere else entirely, e.g. in an encrypted or backed-up
 folder, create it there with `shoebox init <folder>` and set `SHOEBOX_DIR` to
@@ -119,9 +119,14 @@ a3f9…   2026-03-14  bescheid.pdf      steuer,finanzamt  Steuerbescheid 2025, N
 | `init [folder]`    | Create a box (default `box/`): `shoebox.yaml` with default settings, `store/` and an empty `index.tsv`. Existing files are kept. |
 | `add <file>…`       | Hash the PDF, copy it into `store/`, extract text, let the AI propose date, tags and summary, then ask me to accept or edit, and append the row to `index.tsv`. |
 | `find "<question>" [--to <folder>]` | Give the AI the index and the question; it returns the matching row(s) and the path(s). With `--to`, copies the matches into that folder with a readable name like `2026-03-14_steuerbescheid-finanzamt-muenchen-nachzahlung.pdf`. |
+| `name <file.pdf>…`  | Rename PDFs in place to a readable name like `2026-03-14_steuerbescheid-2025-finanzamt-muenchen.pdf`. Documents already in the box are named from the index; others get a date and short title from the AI. I confirm or edit each name; existing files are never overwritten. |
 | `merge <a.pdf> <b.pdf>… [--out <file.pdf>]` | Append the PDFs, in the given order, into one PDF (default `<a>_merged.pdf`). No AI, no OCR. |
 | `sort <scan.pdf> [--out <file.pdf>]` | Let the AI put the pages of one PDF into reading order, then ask me to accept or edit. Writes one PDF with exactly the same pages (default `<scan>_sorted.pdf`). |
 | `verify` (planned) | Rehash every file in `store/` and compare with the index. Reports missing, unknown or corrupted files.                                                                                            |
+
+`-y` / `--yes` (anywhere on the command line) answers yes to every
+confirmation in `add`, `name` and `sort`, e.g. `shoebox name -y dummy/*.pdf`.
+It skips my review, so wrong AI proposals go through unchecked.
 
 ### Adding a document
 
