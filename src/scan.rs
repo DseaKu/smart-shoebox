@@ -1,5 +1,5 @@
 //! Reading a scan page by page, with OCR where needed.
-//! Shared by `sort`, `check` and `counterpart`.
+//! Shared by `sort` and `check`.
 
 use crate::{
     Res,
@@ -16,6 +16,16 @@ pub struct Scan {
 }
 
 impl Scan {
+    /// A scan made of given pages, for tests that need no PDF.
+    #[cfg(test)]
+    pub fn from_pages(pages: Vec<Page>) -> Self {
+        Self {
+            pages,
+            input: PathBuf::new(),
+            ocr_copy: None,
+        }
+    }
+
     /// Extracts the text of every page. If any page has no text, runs OCR on a
     /// temporary copy (pages that already have text are left as they are).
     pub fn read(input: &Path, ocr_language: &str) -> Res<Self> {

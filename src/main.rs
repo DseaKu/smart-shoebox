@@ -11,7 +11,7 @@ use std::process::exit;
 #[command(
     name = "shoebox",
     version,
-    after_help = "add, find, name, sort, check and counterpart use the nearest box: the current \
+    after_help = "add, find, name, sort and check use the nearest box: the current \
 folder or one above it, or its box/ subfolder. Set SHOEBOX_DIR to use one somewhere else."
 )]
 struct Cli {
@@ -73,23 +73,11 @@ enum Command {
         #[arg(long)]
         delete_blank: bool,
     },
-    /// Check a PDF: complete pages, readable name, already in the box; offers fixes
+    /// Check a PDF: complete pages, readable name, already in the box; offers a name
     Check {
         /// The PDF to check
         #[arg(value_name = "PDF")]
         file: PathBuf,
-        /// Where to look for a counterpart (default: the file's folder)
-        #[arg(long = "in", value_name = "FOLDER")]
-        search_in: Option<PathBuf>,
-    },
-    /// Look for the missing pages of a PDF in another PDF, then merge and sort
-    Counterpart {
-        /// The incomplete PDF
-        #[arg(value_name = "PDF")]
-        file: PathBuf,
-        /// Where to look (default: the file's folder)
-        #[arg(long = "in", value_name = "FOLDER")]
-        search_in: Option<PathBuf>,
     },
 }
 
@@ -147,13 +135,9 @@ async fn run(command: Command) -> Res<()> {
                 .await
                 .map(|_| ())
         }
-        Command::Check { file, search_in } => {
+        Command::Check { file } => {
             let (ws, config, llm) = open_box()?;
-            complete::check(&config, &ws, &llm, &file, search_in.as_deref()).await
-        }
-        Command::Counterpart { file, search_in } => {
-            let (_ws, config, llm) = open_box()?;
-            complete::counterpart(&config, &llm, &file, search_in.as_deref()).await
+            complete::check(&config, &ws, &llm, &file).await
         }
     }
 }

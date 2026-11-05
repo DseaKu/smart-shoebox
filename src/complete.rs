@@ -1,8 +1,5 @@
 //! `check`: is a scanned document complete, judging by its printed page numbers?
-//! `counterpart`: find the missing pages in another PDF, then merge and sort.
-//!
-//! Both are plain code, no AI: printed page numbers and shared reference numbers
-//! (contract numbers, customer numbers, dates) are reliable and fast to compare.
+//! Is its name readable, is it already in the box? Plain code, no AI.
 
 use crate::{
     Res,
@@ -11,20 +8,13 @@ use crate::{
     llm::Model,
     naming,
     pages::{Page, join_numbers},
-    pdf::TempFile,
-    pdfdoc, prompt, rename,
+    prompt, rename,
     scan::Scan,
-    sort, store, trash,
+    store,
     workspace::Workspace,
 };
-use regex::Regex;
-use std::collections::{BTreeSet, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
-
-/// A counterpart must share at least this many reference numbers or dates.
-const MIN_SHARED: usize = 2;
+use std::collections::BTreeSet;
+use std::path::Path;
 
 /// What the printed page numbers say about a scan.
 pub struct Report {
@@ -35,13 +25,14 @@ pub struct Report {
     /// Pages between 1 and `last` that are not in the scan. Pages without a printed
     /// number are assumed to fill the lowest gaps (usually page 1 with the letterhead).
     pub missing: Vec<u32>,
-    /// A page number appears twice: the scan probably holds several documents.
-    pub several_documents: bool,
+    /// Printed numbers found on more than one page, with those pages (scan order).
+    /// Several documents in one scan, or a misread number.
+    pub repeated: Vec<(u32, Vec<u32>)>,
 }
 
 impl Report {
     pub fn is_incomplete(&self) -> bool {
-        !self.several_documents && !self.missing.is_empty()
+        !self.missing.is_empty()
     }
 }
 
@@ -66,8 +57,20 @@ pub fn completeness(pages: &[Page]) -> Report {
         .filter(|n| !numbers.contains(n))
         .skip(unnumbered)
         .collect();
+    let repeated = numbers
+        .iter()
+        .map(|&n| {
+            let on: Vec<u32> = content
+                .iter()
+                .filter(|p| p.printed_number.map(|x| x.n) == Some(n))
+                .map(|p| p.number)
+                .collect();
+            (n, on)
+        })
+        .filter(|(_, on)| on.len() > 1)
+        .collect();
     Report {
-        several_documents: numbers.len() != found.len(),
+        repeated,
         numbers: numbers.into_iter().collect(),
         last,
         missing,
@@ -75,39 +78,22 @@ pub fn completeness(pages: &[Page]) -> Report {
 }
 
 /// `check <file>`: a general health check. Reports pages, the file name and
-/// whether it is in the box; then offers the fixes: first the counterpart
-/// (if pages are missing), then a readable name (for the result, if one was made).
-pub async fn check(
-    config: &Config,
-    ws: &Workspace,
-    llm: &impl Model,
-    file: &Path,
-    search_in: Option<&Path>,
-) -> Res<()> {
+/// whether it is in the box; then offers a readable name if the name is not.
+pub async fn check(config: &Config, ws: &Workspace, llm: &impl Model, file: &Path) -> Res<()> {
     let diagnosis = diagnose(config, ws, file)?;
     for line in &diagnosis.lines {
         println!("{line}");
     }
     println!();
-    let (scan, report) = (&diagnosis.scan, &diagnosis.report);
-
-    let mut current = file.to_path_buf();
-    if report.is_incomplete()
-        && prompt::ask_yes_no("Search for the counterpart? [y]es / [n]o: ")?
-        && let Some(result) = find_counterpart(config, llm, file, scan, report, search_in).await?
-    {
-        current = result;
-    }
-    if current.is_file()
-        && !naming::is_readable(&file_stem(&current))
+    if !diagnosis.readable_name
         && prompt::ask_yes_no(&format!(
             "Give {} a readable name? [y]es / [n]o: ",
-            current.display()
+            file.display()
         ))?
     {
-        // The original was read (and OCR'd) above already; a merged result is searchable.
-        let text = (current == file).then(|| diagnosis.text());
-        rename::name_file(config, ws, llm, &current, text.as_deref()).await?;
+        // The file was read (and OCR'd) above already.
+        let text = diagnosis.text();
+        rename::name_file(config, ws, llm, file, Some(&text)).await?;
     }
     Ok(())
 }
@@ -174,32 +160,6 @@ fn file_stem(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// `counterpart <file>`: looks for the missing pages right away.
-pub async fn counterpart(
-    config: &Config,
-    llm: &impl Model,
-    file: &Path,
-    search_in: Option<&Path>,
-) -> Res<()> {
-    let scan = Scan::read(file, &config.ocr_language)?;
-    let report = completeness(&scan.pages);
-    if !report.is_incomplete() {
-        for line in report_lines(file, &scan.pages, &report) {
-            println!("{line}");
-        }
-        println!("Nothing to look for.");
-        return Ok(());
-    }
-    println!(
-        "{}: printed page {} missing",
-        file.display(),
-        join_numbers(&report.missing)
-    );
-    find_counterpart(config, llm, file, &scan, &report, search_in)
-        .await
-        .map(|_| ())
-}
-
 fn report_lines(file: &Path, pages: &[Page], report: &Report) -> Vec<String> {
     let mut lines = Vec::new();
     let plural = if pages.len() == 1 { "" } else { "s" };
@@ -227,9 +187,13 @@ fn report_lines(file: &Path, pages: &[Page], report: &Report) -> Vec<String> {
     if !duplicates.is_empty() {
         lines.push(format!("  duplicate scans: {}", duplicates.join(", ")));
     }
-    if report.several_documents {
-        lines.push("  page numbers repeat: this scan probably holds several documents".to_string());
-    } else if report.missing.is_empty() {
+    for (n, on) in &report.repeated {
+        lines.push(format!(
+            "  printed page {n} appears on pages {}: several documents, or a misread number",
+            join_numbers(on)
+        ));
+    }
+    if report.missing.is_empty() {
         lines.push(format!("  complete: pages 1–{}", report.last));
         lines.push(format!(
             "  (pages after {} would not be noticed if no page says \"von N\")",
@@ -242,217 +206,6 @@ fn report_lines(file: &Path, pages: &[Page], report: &Report) -> Vec<String> {
         ));
     }
     lines
-}
-
-/// A PDF that holds missing pages of the same document.
-pub struct Candidate {
-    pub path: PathBuf,
-    pub scan: Scan,
-    /// Missing page numbers it contains.
-    pub fills: Vec<u32>,
-    /// Reference numbers and dates it shares with the incomplete scan.
-    pub shared: usize,
-    /// Pages that would still be missing after merging with it.
-    pub still: Vec<u32>,
-}
-
-/// Where to look for a counterpart: `search_in`, else the file's folder.
-pub fn search_dir(file: &Path, search_in: Option<&Path>) -> PathBuf {
-    match search_in {
-        Some(dir) => dir.to_path_buf(),
-        None => match file.parent() {
-            Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
-            _ => PathBuf::from("."),
-        },
-    }
-}
-
-/// Reads every other PDF in `dir` and returns the ones that contain a missing
-/// page and share at least `MIN_SHARED` reference numbers or dates, best first.
-pub fn search_counterparts(
-    config: &Config,
-    file: &Path,
-    scan: &Scan,
-    report: &Report,
-    dir: &Path,
-) -> Res<Vec<Candidate>> {
-    let paths = candidate_paths(file, dir)?;
-    if paths.is_empty() {
-        return Ok(Vec::new());
-    }
-    let plural = if paths.len() == 1 { "" } else { "s" };
-    eprintln!(
-        "Looking through {} PDF{plural} in {}…",
-        paths.len(),
-        dir.display()
-    );
-
-    let own_ids = identifiers(&scan.pages);
-    let mut candidates = Vec::new();
-    for path in paths {
-        let other = match Scan::read(&path, &config.ocr_language) {
-            Ok(other) => other,
-            Err(e) => {
-                eprintln!("  skipped {}: {e}", path.display());
-                continue;
-            }
-        };
-        let fills: Vec<u32> = report
-            .missing
-            .iter()
-            .copied()
-            .filter(|&n| {
-                other
-                    .pages
-                    .iter()
-                    .any(|p| p.is_content() && p.printed_number.map(|x| x.n) == Some(n))
-            })
-            .collect();
-        let shared = own_ids.intersection(&identifiers(&other.pages)).count();
-        if fills.is_empty() || shared < MIN_SHARED {
-            continue;
-        }
-        // Like in `sort`, the counterpart's unnumbered pages (often page 1 with the
-        // letterhead) are assumed to fill the lowest remaining gaps.
-        let unnumbered = other
-            .pages
-            .iter()
-            .filter(|p| p.is_content() && p.printed_number.is_none())
-            .count();
-        let still = report
-            .missing
-            .iter()
-            .copied()
-            .filter(|n| !fills.contains(n))
-            .skip(unnumbered)
-            .collect();
-        candidates.push(Candidate {
-            path,
-            scan: other,
-            fills,
-            shared,
-            still,
-        });
-    }
-    // Best first: fills the most missing pages, then shares the most references.
-    candidates.sort_by_key(|c| std::cmp::Reverse((c.fills.len(), c.shared)));
-    Ok(candidates)
-}
-
-/// Merges the searchable versions of both scans into a temporary PDF (so sorting
-/// needs no second OCR). Returns it and where the sorted result should go:
-/// `<file>_complete.pdf`.
-pub fn merge_with(file: &Path, scan: &Scan, candidate: &Candidate) -> Res<(TempFile, PathBuf)> {
-    let merged = TempFile::new("counterpart-merged");
-    pdfdoc::merge(
-        &[
-            scan.source().to_path_buf(),
-            candidate.scan.source().to_path_buf(),
-        ],
-        merged.path(),
-    )?;
-    let out = pdfdoc::output_path(None, file, "complete")?;
-    Ok((merged, out))
-}
-
-async fn find_counterpart(
-    config: &Config,
-    llm: &impl Model,
-    file: &Path,
-    scan: &Scan,
-    report: &Report,
-    search_in: Option<&Path>,
-) -> Res<Option<PathBuf>> {
-    let dir = search_dir(file, search_in);
-    let candidates = search_counterparts(config, file, scan, report, &dir)?;
-    if candidates.is_empty() {
-        println!(
-            "No counterpart found in {}. It must contain at least one missing page and share \
-             at least {MIN_SHARED} reference numbers or dates.",
-            dir.display()
-        );
-        return Ok(None);
-    }
-
-    for candidate in &candidates {
-        println!();
-        println!("Possible counterpart: {}", candidate.path.display());
-        println!(
-            "  has missing page {}, shares {} reference numbers/dates",
-            join_numbers(&candidate.fills),
-            candidate.shared
-        );
-        if !candidate.still.is_empty() {
-            println!(
-                "  still missing afterwards: {}",
-                join_numbers(&candidate.still)
-            );
-        }
-        if !prompt::ask_yes_no("Merge and sort with this file? [y]es / [n]o: ")? {
-            continue;
-        }
-
-        let (merged, out) = merge_with(file, scan, candidate)?;
-        let written = sort::run(config, llm, merged.path(), Some(&out), false).await?;
-        if written.is_some() {
-            if !candidate.still.is_empty() {
-                println!(
-                    "Still missing: printed page {}. Run `counterpart` on the result to look further.",
-                    join_numbers(&candidate.still)
-                );
-            }
-            trash::offer(&[file.to_path_buf(), candidate.path.clone()])?;
-        }
-        return Ok(written);
-    }
-    println!("No file merged.");
-    Ok(None)
-}
-
-/// Other PDFs in `dir`: not the file itself, not an identical copy, and not one of
-/// its own results (`<stem>_sorted.pdf`, `<stem>_merged.pdf`, `<stem>_complete.pdf`, …).
-fn candidate_paths(file: &Path, dir: &Path) -> Res<Vec<PathBuf>> {
-    let own_hash = hash::sha256_file(file)?;
-    let own_stem = file
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let mut paths: Vec<PathBuf> = fs::read_dir(dir)
-        .map_err(|e| format!("cannot read {}: {e}", dir.display()))?
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .filter(|p| p.is_file())
-        .filter(|p| {
-            p.extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
-        })
-        .filter(|p| {
-            let stem = p
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            stem != own_stem && !stem.starts_with(&format!("{own_stem}_"))
-        })
-        .filter(|p| hash::sha256_file(p).map(|h| h != own_hash).unwrap_or(false))
-        .collect();
-    paths.sort();
-    Ok(paths)
-}
-
-/// Numbers with at least 5 characters, like contract numbers (3230 / 1051.00012.06),
-/// customer numbers and dates (29.10.2025). Plain years and amounts are too short.
-static IDENTIFIER: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\d[\d./-]{3,}\d").expect("valid regex"));
-
-fn identifiers(pages: &[Page]) -> HashSet<String> {
-    pages
-        .iter()
-        .filter(|p| p.is_content())
-        .flat_map(|p| {
-            IDENTIFIER
-                .find_iter(&p.text)
-                .map(|m| m.as_str().to_string())
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -500,24 +253,29 @@ mod tests {
     }
 
     #[test]
-    fn repeated_numbers_mean_several_documents() {
+    fn repeated_numbers_are_reported() {
         let scan = pages::analyze(vec![
             page(1, "Seite 1"),
             page(2, "Seite 2"),
             page(3, "Seite 1"),
         ]);
         let report = completeness(&scan);
-        assert!(report.several_documents && !report.is_incomplete());
+        assert_eq!(report.repeated, [(1, vec![1, 3])]);
+        assert!(!report.is_incomplete());
     }
 
     #[test]
-    fn finds_shared_reference_numbers() {
-        let a = pages::analyze(vec![page(1, "Seite 1 Kundennummer 0118413100")]);
-        let b = pages::analyze(vec![page(2, "Seite 2 Kundennummer 0118413100")]);
-        let c = pages::analyze(vec![
-            "Seite 3 ganz anderer Brief Rechnung 4711-0815 vom 01.02.2026 Text".into(),
+    fn a_repeated_number_does_not_hide_the_gaps() {
+        // Fronts of a one-sided scan, with one number found twice.
+        let scan = pages::analyze(vec![
+            page(1, "Seite 3"),
+            page(2, "Seite 5"),
+            page(3, "Seite 3"),
+            page(4, "Seite 7"),
         ]);
-        assert_eq!(identifiers(&a).intersection(&identifiers(&b)).count(), 3);
-        assert_eq!(identifiers(&a).intersection(&identifiers(&c)).count(), 0);
+        let report = completeness(&scan);
+        assert_eq!(report.repeated, [(3, vec![1, 3])]);
+        assert_eq!(report.missing, [1, 2, 4, 6]);
+        assert!(report.is_incomplete());
     }
 }

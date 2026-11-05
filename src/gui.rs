@@ -13,14 +13,13 @@
 use crate::{
     Res,
     add::{self, Prepared, Proposal},
-    complete::{self, Candidate, Diagnosis},
+    complete::{self, Diagnosis},
     config::Config,
     entry::Entry,
     find, index,
     index::Row,
     llm::Llm,
     merge, pages,
-    pdf::TempFile,
     rename::{self, NameProposal},
     sort::{self, SortPlan},
     store, trash,
@@ -60,24 +59,8 @@ enum Msg {
     Found(Result<find::Found, String>),
     Prepared(PathBuf, Result<Prepared, String>),
     Named(Vec<(PathBuf, Result<NameProposal, String>)>),
-    Sorted(PathBuf, Result<SortPlan, String>, SortExtra),
-    Checked(PathBuf, Result<Diagnosis, String>),
-    Counterparts {
-        file: PathBuf,
-        diagnosis: Diagnosis,
-        dir: PathBuf,
-        result: Result<Vec<Candidate>, String>,
-    },
-}
-
-/// For sorting a scan merged with its counterpart: the temporary merged PDF
-/// (kept until the result is written), the two originals and what is still missing.
-#[derive(Default)]
-struct SortExtra {
-    /// Only held, so the merged PDF exists until the result is written.
-    _temp: Option<TempFile>,
-    originals: Vec<PathBuf>,
-    still: Vec<u32>,
+    Sorted(PathBuf, Result<SortPlan, String>),
+    Checked(Vec<(PathBuf, Result<Diagnosis, String>)>),
 }
 
 /// A file in the Files tab.
@@ -91,13 +74,8 @@ enum Pane {
     Empty,
     Names(Vec<NameItem>),
     Sort(SortView),
-    Check(PathBuf, Diagnosis),
-    Counterparts {
-        file: PathBuf,
-        diagnosis: Diagnosis,
-        dir: PathBuf,
-        candidates: Vec<Candidate>,
-    },
+    /// One report per checked file (or why it could not be checked).
+    Check(Vec<(PathBuf, Result<Diagnosis, String>)>),
     /// A result was written; offers to move the originals to the Trash.
     Done {
         heading: String,
@@ -120,7 +98,6 @@ struct SortView {
     /// The page order I am editing, e.g. `1,3,2; 4,5`.
     order: String,
     delete_blank: bool,
-    extra: SortExtra,
 }
 
 /// Something I clicked in a pane; applied after drawing it.
@@ -133,8 +110,9 @@ enum Click {
     Sort(PathBuf),
     AddToBox(PathBuf),
     TrashOriginals,
-    SearchCounterpart,
-    UseCandidate(usize),
+    /// Name several files; each with its text if it is already known.
+    NameAll(Vec<(PathBuf, Option<String>)>),
+    AddAllToBox(Vec<PathBuf>),
 }
 
 struct App {
@@ -322,11 +300,13 @@ impl App {
         self.tab = Tab::Add;
     }
 
-    fn start_naming(&mut self, ctx: &egui::Context, files: Vec<PathBuf>, text: Option<String>) {
+    /// Proposes names; each file comes with its text if it is already known
+    /// (e.g. from a check), so it is not read and OCR'd again.
+    fn start_naming(&mut self, ctx: &egui::Context, files: Vec<(PathBuf, Option<String>)>) {
         let what = format!("Finding names for {} file(s)…", files.len());
         self.spawn(ctx, &what, move |ws, config, llm| async move {
             let mut results = Vec::new();
-            for file in files {
+            for (file, text) in files {
                 let proposal = rename::propose(&config, &ws, &llm, &file, text.as_deref())
                     .await
                     .map_err(|e| e.to_string());
@@ -342,84 +322,25 @@ impl App {
             let plan = sort::propose(&config, &llm, &file, None)
                 .await
                 .map_err(|e| e.to_string());
-            Msg::Sorted(file, plan, SortExtra::default())
+            Msg::Sorted(file, plan)
         });
     }
 
-    /// Looks for the missing pages in the other PDFs of the file's folder.
-    /// Uses the check's result if there is one, so the file is not OCR'd again.
-    fn start_counterpart(
-        &mut self,
-        ctx: &egui::Context,
-        file: PathBuf,
-        diagnosis: Option<Diagnosis>,
-    ) {
-        let dir = complete::search_dir(&file, None);
-        let what = format!(
-            "Looking for the missing pages of {} in {} (OCR can take a while)…",
-            file_name(&file),
-            dir.display()
-        );
+    fn start_check(&mut self, ctx: &egui::Context, files: Vec<PathBuf>) {
+        let what = match files.as_slice() {
+            [file] => format!("Checking {} (OCR can take a while)…", file_name(file)),
+            _ => format!("Checking {} files (OCR can take a while)…", files.len()),
+        };
         self.spawn(ctx, &what, move |ws, config, _llm| async move {
-            let diagnosis = match diagnosis {
-                Some(d) => d,
-                None => match complete::diagnose(&config, &ws, &file) {
-                    Ok(d) => d,
-                    Err(e) => return Msg::Checked(file, Err(e.to_string())),
-                },
-            };
-            let result = if diagnosis.report.is_incomplete() {
-                complete::search_counterparts(
-                    &config,
-                    &file,
-                    &diagnosis.scan,
-                    &diagnosis.report,
-                    &dir,
-                )
-                .map_err(|e| e.to_string())
-            } else {
-                Ok(Vec::new())
-            };
-            Msg::Counterparts {
-                file,
-                diagnosis,
-                dir,
-                result,
-            }
-        });
-    }
-
-    /// Merges the scan with the chosen counterpart and lets the AI sort both.
-    fn start_merge_with(
-        &mut self,
-        ctx: &egui::Context,
-        file: PathBuf,
-        diagnosis: Diagnosis,
-        candidate: Candidate,
-    ) {
-        let what = format!("Merging with {} and sorting…", file_name(&candidate.path));
-        self.spawn(ctx, &what, move |_ws, config, llm| async move {
-            let (temp, out) = match complete::merge_with(&file, &diagnosis.scan, &candidate) {
-                Ok(merged) => merged,
-                Err(e) => return Msg::Sorted(file, Err(e.to_string()), SortExtra::default()),
-            };
-            let plan = sort::propose(&config, &llm, temp.path(), Some(&out))
-                .await
-                .map_err(|e| e.to_string());
-            let extra = SortExtra {
-                _temp: Some(temp),
-                originals: vec![file.clone(), candidate.path],
-                still: candidate.still,
-            };
-            Msg::Sorted(file, plan, extra)
-        });
-    }
-
-    fn start_check(&mut self, ctx: &egui::Context, file: PathBuf) {
-        let what = format!("Checking {} (OCR can take a while)…", file_name(&file));
-        self.spawn(ctx, &what, move |ws, config, _llm| async move {
-            let diagnosis = complete::diagnose(&config, &ws, &file).map_err(|e| e.to_string());
-            Msg::Checked(file, diagnosis)
+            let results = files
+                .into_iter()
+                .map(|file| {
+                    let diagnosis =
+                        complete::diagnose(&config, &ws, &file).map_err(|e| e.to_string());
+                    (file, diagnosis)
+                })
+                .collect();
+            Msg::Checked(results)
         });
     }
 
@@ -504,7 +425,7 @@ impl App {
                     }
                     self.pane = Pane::Names(items);
                 }
-                Msg::Sorted(input, Ok(plan), extra) => {
+                Msg::Sorted(input, Ok(plan)) => {
                     self.status = None;
                     let order = sort::format_groups(&plan.groups);
                     self.pane = Pane::Sort(SortView {
@@ -512,53 +433,22 @@ impl App {
                         plan,
                         order,
                         delete_blank: false,
-                        extra,
                     });
                 }
-                Msg::Sorted(file, Err(e), _) | Msg::Checked(file, Err(e)) => {
+                Msg::Sorted(file, Err(e)) => {
                     self.error(format!("{}: {e}", file_name(&file)));
                 }
-                Msg::Counterparts {
-                    file,
-                    diagnosis,
-                    dir,
-                    result,
-                } => {
-                    if !diagnosis.report.is_incomplete() {
-                        self.info(format!(
-                            "{}: no missing pages found, nothing to look for.",
-                            file_name(&file)
+                Msg::Checked(results) => {
+                    let failed = results.iter().filter(|(_, r)| r.is_err()).count();
+                    if failed == 0 {
+                        self.status = None;
+                    } else {
+                        self.error(format!(
+                            "{failed} of {} file(s) could not be checked.",
+                            results.len()
                         ));
-                        self.pane = Pane::Check(file, diagnosis);
-                        continue;
                     }
-                    match result {
-                        Ok(candidates) => {
-                            if candidates.is_empty() {
-                                self.info(format!(
-                                    "No counterpart found in {}. It must contain a missing page \
-                                     and share at least 2 reference numbers or dates.",
-                                    dir.display()
-                                ));
-                            } else {
-                                self.status = None;
-                            }
-                            self.pane = Pane::Counterparts {
-                                file,
-                                diagnosis,
-                                dir,
-                                candidates,
-                            };
-                        }
-                        Err(e) => {
-                            self.error(format!("{}: {e}", file_name(&file)));
-                            self.pane = Pane::Check(file, diagnosis);
-                        }
-                    }
-                }
-                Msg::Checked(file, Ok(diagnosis)) => {
-                    self.status = None;
-                    self.pane = Pane::Check(file, diagnosis);
+                    self.pane = Pane::Check(results);
                 }
             }
         }
@@ -605,58 +495,22 @@ impl App {
                     .and_then(|groups| sort::write(&view.plan, &groups, view.delete_blank));
                 match result {
                     Ok((out, count)) => {
-                        let originals = view.extra.originals.clone();
-                        let still = view.extra.still.clone();
-                        if originals.is_empty() {
-                            self.info(format!(
-                                "Wrote {} ({count} pages); {} is unchanged.",
-                                file_name(&view.input),
-                                file_name(&out)
-                            ));
-                            self.pane = Pane::Empty;
-                        } else {
-                            if still.is_empty() {
-                                self.info(format!("Wrote {} ({count} pages).", file_name(&out)));
-                            } else {
-                                self.error(format!(
-                                    "Wrote {} ({count} pages), but printed page {} is still \
-                                     missing: run Counterpart on it to look further.",
-                                    file_name(&out),
-                                    pages::join_numbers(&still)
-                                ));
-                            }
-                            self.pane = Pane::Done {
-                                heading: format!("Merged and sorted into {}", file_name(&out)),
-                                originals,
-                                offer_trash: true,
-                            };
-                        }
+                        self.info(format!(
+                            "Wrote {} ({count} pages); {} is unchanged.",
+                            file_name(&out),
+                            file_name(&view.input)
+                        ));
+                        self.pane = Pane::Empty;
                         self.show_result(out);
                     }
                     Err(e) => self.error(format!("Not written: {e}")),
                 }
             }
-            Click::Name(file, text) => self.start_naming(ctx, vec![file], text),
+            Click::Name(file, text) => self.start_naming(ctx, vec![(file, text)]),
+            Click::NameAll(files) => self.start_naming(ctx, files),
+            Click::AddAllToBox(files) => self.queue_for_box(files),
             Click::Sort(file) => self.start_sort(ctx, file),
             Click::AddToBox(file) => self.queue_for_box(vec![file]),
-            Click::SearchCounterpart => {
-                if let Pane::Check(file, diagnosis) = std::mem::replace(&mut self.pane, Pane::Empty)
-                {
-                    self.start_counterpart(ctx, file, Some(diagnosis));
-                }
-            }
-            Click::UseCandidate(i) => {
-                if let Pane::Counterparts {
-                    file,
-                    diagnosis,
-                    mut candidates,
-                    ..
-                } = std::mem::replace(&mut self.pane, Pane::Empty)
-                {
-                    let candidate = candidates.swap_remove(i);
-                    self.start_merge_with(ctx, file, diagnosis, candidate);
-                }
-            }
             Click::TrashOriginals => {
                 let Pane::Done { originals, .. } = &self.pane else {
                     return;
@@ -765,7 +619,7 @@ impl App {
                 self.queue_for_box(selected.clone());
             }
             if action(ui, idle && n >= 1, "Name", "Rename to a readable name").clicked() {
-                self.start_naming(&ctx, selected.clone(), None);
+                self.start_naming(&ctx, selected.iter().map(|f| (f.clone(), None)).collect());
             }
             if action(
                 ui,
@@ -789,23 +643,13 @@ impl App {
             }
             if action(
                 ui,
-                idle && n == 1,
+                idle && n >= 1,
                 "Check",
                 "Pages complete? Name readable? In the box?",
             )
             .clicked()
             {
-                self.start_check(&ctx, selected[0].clone());
-            }
-            if action(
-                ui,
-                idle && n == 1,
-                "Counterpart",
-                "Look for the missing pages in the other PDFs of its folder",
-            )
-            .clicked()
-            {
-                self.start_counterpart(&ctx, selected[0].clone(), None);
+                self.start_check(&ctx, selected.clone());
             }
         });
         ui.separator();
@@ -863,11 +707,7 @@ impl App {
                 }
             }
             Pane::Sort(view) => {
-                let heading = match view.extra.originals.as_slice() {
-                    [a, b] => format!("Sort {} + {}", file_name(a), file_name(b)),
-                    _ => format!("Sort {}", file_name(&view.input)),
-                };
-                ui.heading(heading);
+                ui.heading(format!("Sort {}", file_name(&view.input)));
                 let pages = &view.plan.scan.pages;
                 let edited = sort::parse_edit(&view.order, pages);
                 let groups = edited.as_ref().unwrap_or(&view.plan.groups);
@@ -949,80 +789,81 @@ impl App {
                     }
                 });
             }
-            Pane::Check(file, diagnosis) => {
-                ui.heading(format!("Check {}", file_name(file)));
-                for line in &diagnosis.lines {
-                    ui.monospace(line);
+            Pane::Check(results) => {
+                ui.heading(match results.len() {
+                    1 => format!("Check {}", file_name(&results[0].0)),
+                    n => format!("Check of {n} files"),
+                });
+                let several = results.len() > 1;
+                for (file, result) in results.iter() {
+                    if several {
+                        ui.add_space(8.0);
+                        ui.strong(file_name(file));
+                    }
+                    let diagnosis = match result {
+                        Ok(diagnosis) => diagnosis,
+                        Err(e) => {
+                            ui.colored_label(ui.visuals().error_fg_color, e);
+                            continue;
+                        }
+                    };
+                    for line in &diagnosis.lines {
+                        ui.monospace(line);
+                    }
+                    ui.horizontal(|ui| {
+                        if !diagnosis.readable_name
+                            && ui.add_enabled(idle, egui::Button::new("Name it")).clicked()
+                        {
+                            click = Some(Click::Name(file.clone(), Some(diagnosis.text())));
+                        }
+                        if ui.add_enabled(idle, egui::Button::new("Sort it")).clicked() {
+                            click = Some(Click::Sort(file.clone()));
+                        }
+                        if !diagnosis.in_box && ui.button("Add to box").clicked() {
+                            click = Some(Click::AddToBox(file.clone()));
+                        }
+                    });
                 }
-                ui.add_space(6.0);
+
+                // For several files: the fixes that work on all of them at once.
+                let ok = || {
+                    results
+                        .iter()
+                        .filter_map(|(f, r)| Some((f, r.as_ref().ok()?)))
+                };
+                let unnamed: Vec<(PathBuf, Option<String>)> = ok()
+                    .filter(|(_, d)| !d.readable_name)
+                    .map(|(f, d)| (f.clone(), Some(d.text())))
+                    .collect();
+                let not_in_box: Vec<PathBuf> = ok()
+                    .filter(|(_, d)| !d.in_box)
+                    .map(|(f, _)| f.clone())
+                    .collect();
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if diagnosis.report.is_incomplete()
+                    if several
+                        && unnamed.len() > 1
                         && ui
-                            .add_enabled(idle, egui::Button::new("Search counterpart"))
-                            .on_hover_text(
-                                "Look for the missing pages in the other PDFs of its folder",
+                            .add_enabled(
+                                idle,
+                                egui::Button::new(format!("Name all {} unreadable", unnamed.len())),
                             )
                             .clicked()
                     {
-                        click = Some(Click::SearchCounterpart);
+                        click = Some(Click::NameAll(unnamed.clone()));
                     }
-                    if !diagnosis.readable_name
-                        && ui.add_enabled(idle, egui::Button::new("Name it")).clicked()
+                    if several
+                        && not_in_box.len() > 1
+                        && ui
+                            .button(format!("Add all {} to the box", not_in_box.len()))
+                            .clicked()
                     {
-                        click = Some(Click::Name(file.clone(), Some(diagnosis.text())));
-                    }
-                    if ui.add_enabled(idle, egui::Button::new("Sort it")).clicked() {
-                        click = Some(Click::Sort(file.clone()));
-                    }
-                    if !diagnosis.in_box && ui.button("Add to box").clicked() {
-                        click = Some(Click::AddToBox(file.clone()));
+                        click = Some(Click::AddAllToBox(not_in_box.clone()));
                     }
                     if ui.button("Close").clicked() {
                         click = Some(Click::Close);
                     }
                 });
-            }
-            Pane::Counterparts {
-                file,
-                dir,
-                candidates,
-                ..
-            } => {
-                ui.heading(format!("Counterparts for {}", file_name(file)));
-                ui.weak(format!("Searched {}", dir.display()));
-                if candidates.is_empty() {
-                    ui.label("None found.");
-                }
-                for (i, candidate) in candidates.iter().enumerate() {
-                    ui.add_space(4.0);
-                    ui.strong(file_name(&candidate.path));
-                    ui.label(format!(
-                        "  has missing page {}, shares {} reference numbers/dates",
-                        pages::join_numbers(&candidate.fills),
-                        candidate.shared
-                    ));
-                    if !candidate.still.is_empty() {
-                        ui.label(format!(
-                            "  still missing afterwards: {}",
-                            pages::join_numbers(&candidate.still)
-                        ));
-                    }
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(idle, egui::Button::new("Merge and sort with this"))
-                            .clicked()
-                        {
-                            click = Some(Click::UseCandidate(i));
-                        }
-                        if ui.small_button("Open").clicked() {
-                            let _ = open(&candidate.path, false);
-                        }
-                    });
-                }
-                ui.add_space(8.0);
-                if ui.button("Close").clicked() {
-                    click = Some(Click::Close);
-                }
             }
             Pane::Done {
                 heading,

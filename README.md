@@ -122,8 +122,7 @@ a3f9…   2026-03-14  bescheid.pdf      steuer,finanzamt  Steuerbescheid 2025, N
 | `name <file.pdf>…`  | Rename PDFs in place to a readable name like `2026-03-14_steuerbescheid-2025-finanzamt-muenchen.pdf`. Documents already in the box are named from the index; others get a date and short title from the AI. I confirm or edit each name; existing files are never overwritten. |
 | `merge <a.pdf> <b.pdf>… [--out <file.pdf>]` | Append the PDFs, in the given order, into one PDF (default `<a>_merged.pdf`). No AI, no OCR. Then asks whether to delete the originals (they go to the Trash; only offered if every page made it into the result). |
 | `sort <scan.pdf> [--out <file.pdf>] [--delete-blank]` | Let the AI put the pages of one PDF into reading order, then ask me to accept or edit. Writes one PDF with the same pages (default `<scan>_sorted.pdf`); if there are blank pages, it asks at the end whether to delete them (`--delete-blank` deletes them without asking). |
-| `check <scan.pdf> [--in <folder>]` | General health check: from the printed page numbers, is the scan complete (missing pages, blank pages, duplicates)? Is the file name readable? Is it already in the box? Then offers the fixes: `counterpart` if pages are missing, and a readable name (as with `name`) if the name is not, for the merged result if one was made. |
-| `counterpart <scan.pdf> [--in <folder>]` | Look through the other PDFs in the same folder (or `--in`) for the missing pages. A match must contain a missing page and share at least 2 reference numbers or dates. If I agree, merge and sort both into `<scan>_complete.pdf`, then ask whether to move the two originals to the Trash. |
+| `check <scan.pdf>` | General health check: from the printed page numbers, is the scan complete (missing pages, blank pages, duplicates)? Is the file name readable? Is it already in the box? Then offers a readable name (as with `name`) if the name is not. |
 | `verify` (planned) | Rehash every file in `store/` and compare with the index. Reports missing, unknown or corrupted files.                                                                                            |
 
 `shoebox --help` lists all commands, and `shoebox <command> --help` (e.g.
@@ -199,26 +198,21 @@ the only pages it leaves out are duplicate scans:
    page I placed myself while editing is always kept. The original scan is
    never changed.
 
-### Completing a scan
+### Checking a scan
 
 A one-sided scanner often leaves a document spread over two files, e.g. the
-fronts in one and the backs in another:
+fronts in one and the backs in another. `check` tells whether a scan is complete:
 
 ```
 shoebox check input/nebenkostenabrechnung.pdf
 ```
 
-1. `check` reads the printed page numbers (with OCR if needed). Pages without a
-   number fill the lowest gaps, usually page 1 with the letterhead. A "von N"
-   on any page also reveals missing last pages; without it, missing pages at
-   the end cannot be noticed.
-2. If pages are missing, it offers to look for the **counterpart**: another PDF
-   in the same folder that contains missing page numbers and shares reference
-   numbers or dates (contract numbers, customer numbers, …). This is plain
-   code, no AI. The best match is shown first.
-3. If I agree, both files are merged and go through the normal `sort`, with
-   its confirmation. The result is `<scan>_complete.pdf`; the originals stay as
-   they are. Pages still missing afterwards are reported.
+It reads the printed page numbers (with OCR if needed). Pages without a number
+fill the lowest gaps, usually page 1 with the letterhead. A "von N" on any page
+also reveals missing last pages; without it, missing pages at the end cannot be
+noticed. A number found on two pages is reported too (several documents, or a
+misread number). To complete a scan, `merge` it with the file that holds the
+missing pages and `sort` the result.
 
 ### The window (optional)
 
@@ -234,10 +228,9 @@ scripts/bundle-macos.sh       # Smart Shoebox.app, to double-click or drag into 
 
 - **Files**: open one or more PDFs (file dialog or drop them on the window), select
   some and run an action: Add to box, Name, Merge (in list order), Sort (with an
-  editable page order and the blank-page choice), Check (report, then Search
-  counterpart / Name it / Sort it / Add to box) or Counterpart (pick one of the PDFs
-  that hold the missing pages, then edit the sort and write `<file>_complete.pdf`;
-  offers to move both originals to the Trash).
+  editable page order and the blank-page choice) or Check (one or more files: a report
+  per file with Name it / Sort it / Add to box, and for several files Name all
+  unreadable / Add all to the box).
 - **Find**: browse all documents or search by question; open a document in Preview
   or show it in Finder.
 - **Add**: review and edit the AI's proposal, then save.
