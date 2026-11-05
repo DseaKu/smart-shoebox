@@ -36,6 +36,23 @@ Rules:
 Answer only with JSON in this form:
 {"date": "YYYY-MM-DD", "title": "3 to 6 words"}"#;
 
+/// `wizard`: the index entry and a title for the file name in one request,
+/// instead of asking the extractor and the namer separately.
+pub const CATALOGUER: &str = "\
+You catalogue private paperwork such as tax notices, contracts, insurance papers and invoices.
+From the document text, propose one index entry and a short title for the file name.
+
+Rules:
+- date is the date of the document itself (issue date, contract date) as YYYY-MM-DD, not today's date.
+- title says what kind of document it is and who it is from, in the language of the document, in 3 to 6 words, e.g. \"Steuerbescheid 2025 Finanzamt München\", \"Mietvertrag LEG Wohnung\", \"Rechnung Zahnarzt\". No amounts, no names of the recipient, no account, customer or contract numbers.
+- tags are 2 to 4 short, general, lowercase words, e.g. steuer, finanzamt, versicherung, wohnung, vertrag, rechnung, gesundheit, auto, bank. No names, places, amounts or dates in tags; those belong in the summary.
+- Reuse tags from the list of existing tags whenever one fits. Create a new tag only if none fit.
+- summary is one line in the language of the document, with the key facts: what kind of document, who issued it, amounts, periods.
+- Write title and summary with normal capitalization, as in the document (in German, nouns and names start with a capital letter), e.g. \"Steuerbescheid 2025 vom Finanzamt München, Nachzahlung 312 €\". Never all lowercase.
+- Use only facts that appear in the text.
+Answer only with JSON in this form:
+{\"date\": \"YYYY-MM-DD\", \"title\": \"3 to 6 words\", \"tags\": [\"tag1\", \"tag2\"], \"summary\": \"one line\"}";
+
 /// `sort`: groups scanned pages into documents and orders each one.
 pub const SORTER: &str = r#"You sort the pages of a scanned stack of private paperwork.
 The scanner is one-sided, so pages are often out of order: fronts and backs come from separate passes, the backs are often in reverse order, and sometimes several letters are mixed in one scan.

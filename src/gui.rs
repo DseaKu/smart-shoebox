@@ -1,5 +1,7 @@
 //! `gui`: a small window for the everyday jobs.
 //!
+//! - Wizard: drop a pile of PDFs; each is checked, completed, named and added
+//!   without questions (see `wizard`), and I see what is left for me.
 //! - Files: open PDFs (dialog or drop), select some, and run an action on them:
 //!   add to the box, name, merge, sort or check.
 //! - Find: browse all documents or search by question.
@@ -24,6 +26,7 @@ use crate::{
     rename::{self, NameProposal},
     sort::{self, SortPlan},
     store, trash,
+    wizard::{self, Status, Summary},
     workspace::Workspace,
 };
 use eframe::egui;
@@ -31,6 +34,7 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use tokio::sync::oneshot;
 
 /// Opens the window and returns when it is closed.
 pub fn run(ws: Workspace, config: Config) -> Res<()> {
@@ -50,6 +54,7 @@ pub fn run(ws: Workspace, config: Config) -> Res<()> {
 
 #[derive(PartialEq)]
 enum Tab {
+    Wizard,
     Files,
     Find,
     Add,
@@ -68,6 +73,9 @@ enum Msg {
         dir: PathBuf,
         result: Result<complete::Search, String>,
     },
+    /// A progress line of the wizard; the job goes on.
+    WizardLog(String),
+    Wizard(Result<Summary, String>),
 }
 
 /// For sorting a scan merged with its counterpart: the temporary merged PDF
@@ -78,6 +86,20 @@ struct SortExtra {
     _temp: Option<TempFile>,
     originals: Vec<PathBuf>,
     still: Vec<u32>,
+}
+
+/// Lets a running job send messages before its result (the wizard's log).
+struct Progress {
+    id: u64,
+    tx: Sender<(u64, Msg)>,
+    ctx: egui::Context,
+}
+
+impl Progress {
+    fn send(&self, msg: Msg) {
+        let _ = self.tx.send((self.id, msg));
+        self.ctx.request_repaint();
+    }
 }
 
 /// A file in the Files tab.
@@ -162,8 +184,18 @@ struct App {
     busy: Option<String>,
     /// The last message, and whether it is an error.
     status: Option<(String, bool)>,
-    tx: Sender<Msg>,
-    rx: Receiver<Msg>,
+    /// PDFs and folders dropped for the wizard.
+    wizard_inputs: Vec<PathBuf>,
+    /// What the running or last wizard run did, line by line.
+    wizard_log: Vec<String>,
+    wizard: Option<Summary>,
+    /// Number of the running (or last) job; results of cancelled jobs carry an
+    /// older number and are dropped.
+    job: u64,
+    /// Stops the running job when sent (or dropped).
+    cancel: Option<oneshot::Sender<()>>,
+    tx: Sender<(u64, Msg)>,
+    rx: Receiver<(u64, Msg)>,
 }
 
 impl App {
@@ -172,7 +204,10 @@ impl App {
         let mut app = App {
             ws,
             config,
-            tab: Tab::Files,
+            tab: Tab::Wizard,
+            wizard_inputs: Vec::new(),
+            wizard_log: Vec::new(),
+            wizard: None,
             files: Vec::new(),
             pane: Pane::Empty,
             all: Vec::new(),
@@ -182,6 +217,8 @@ impl App {
             current: None,
             busy: None,
             status: None,
+            job: 0,
+            cancel: None,
             tx,
             rx,
         };
@@ -215,7 +252,20 @@ impl App {
         F: FnOnce(Workspace, Config, Llm) -> Fut + Send + 'static,
         Fut: Future<Output = Msg>,
     {
+        self.spawn_with_progress(ctx, what, move |ws, config, llm, _| job(ws, config, llm));
+    }
+
+    /// Like `spawn`, and the job can send messages while it runs.
+    fn spawn_with_progress<F, Fut>(&mut self, ctx: &egui::Context, what: &str, job: F)
+    where
+        F: FnOnce(Workspace, Config, Llm, Progress) -> Fut + Send + 'static,
+        Fut: Future<Output = Msg>,
+    {
         self.busy = Some(what.to_string());
+        self.job += 1;
+        let id = self.job;
+        let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+        self.cancel = Some(cancel_tx);
         let (ws, config, tx, ctx) = (
             self.ws.clone(),
             self.config.clone(),
@@ -228,10 +278,98 @@ impl App {
                 .build()
                 .expect("cannot start the async runtime");
             let llm = Llm::new(&config);
-            let msg = runtime.block_on(job(ws, config, llm));
-            let _ = tx.send(msg);
-            ctx.request_repaint();
+            let progress = Progress {
+                id,
+                tx: tx.clone(),
+                ctx: ctx.clone(),
+            };
+            // Cancelling drops the job at its next pause (e.g. while waiting for
+            // the model), which also ends the request to Ollama. A step that is
+            // already running (such as OCR) finishes first, its result is dropped.
+            let msg = runtime.block_on(async {
+                tokio::select! {
+                    biased;
+                    _ = cancel_rx => None,
+                    msg = job(ws, config, llm, progress) => Some(msg),
+                }
+            });
+            if let Some(msg) = msg {
+                let _ = tx.send((id, msg));
+                ctx.request_repaint();
+            }
         });
+    }
+
+    /// Stops the running job and the files waiting to be added.
+    fn cancel_job(&mut self) {
+        if self.busy.take().is_none() {
+            return;
+        }
+        self.job += 1;
+        if let Some(cancel) = self.cancel.take() {
+            let _ = cancel.send(());
+        }
+        let waiting = self.queue.len();
+        self.queue.clear();
+        if waiting > 0 {
+            self.info(format!(
+                "Cancelled ({waiting} waiting file(s) dropped too)."
+            ));
+        } else {
+            self.info("Cancelled.");
+        }
+    }
+
+    // ----- wizard -----
+
+    fn add_wizard_inputs(&mut self, paths: impl IntoIterator<Item = PathBuf>) {
+        for path in paths {
+            let is_pdf = path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+            if !(path.is_dir() || (path.is_file() && is_pdf)) {
+                self.error(format!("{} is neither a PDF nor a folder.", path.display()));
+            } else if !self.wizard_inputs.contains(&path) {
+                self.wizard_inputs.push(path);
+            }
+        }
+    }
+
+    fn start_wizard(&mut self, ctx: &egui::Context) {
+        let inputs = self.wizard_inputs.clone();
+        let count = match wizard::pdfs_in(&inputs) {
+            Ok(paths) if paths.is_empty() => return self.error("No PDFs in what you chose."),
+            Ok(paths) => paths.len(),
+            Err(e) => return self.error(e.to_string()),
+        };
+        self.wizard = None;
+        self.wizard_log.clear();
+        let what = format!("Wizard: handling {count} PDF(s)…");
+        self.spawn_with_progress(ctx, &what, move |ws, config, llm, progress| async move {
+            let mut log = |line: String| progress.send(Msg::WizardLog(line));
+            let summary = wizard::handle(&config, &ws, &llm, &inputs, &mut log)
+                .await
+                .map_err(|e| e.to_string());
+            Msg::Wizard(summary)
+        });
+    }
+
+    fn trash_spare_originals(&mut self) {
+        let Some(summary) = &self.wizard else {
+            return;
+        };
+        let spare = summary.spare_originals();
+        let mut errors = Vec::new();
+        for file in &spare {
+            if let Err(e) = trash::move_to_trash(file) {
+                errors.push(format!("{}: {e}", file_name(file)));
+            }
+        }
+        if errors.is_empty() {
+            self.info(format!("Moved {} original(s) to the Trash.", spare.len()));
+        } else {
+            self.error(errors.join("; "));
+        }
     }
 
     // ----- files -----
@@ -472,8 +610,16 @@ impl App {
     // ----- results -----
 
     fn receive(&mut self) {
-        while let Ok(msg) = self.rx.try_recv() {
+        while let Ok((id, msg)) = self.rx.try_recv() {
+            if id != self.job {
+                continue; // a cancelled job
+            }
+            if let Msg::WizardLog(line) = msg {
+                self.wizard_log.push(line);
+                continue;
+            }
             self.busy = None;
+            self.cancel = None;
             match msg {
                 Msg::Found(Ok(found)) => {
                     match (&found.note, found.rows.len()) {
@@ -484,6 +630,19 @@ impl App {
                     self.results = Some((self.question.trim().to_string(), found.rows));
                 }
                 Msg::Found(Err(e)) => self.error(e),
+                Msg::WizardLog(_) => {}
+                Msg::Wizard(Ok(summary)) => {
+                    let added = summary.count(|s| matches!(s, Status::Added { .. }));
+                    let open = summary.count(|s| matches!(s, Status::NeedsYou(_)));
+                    self.info(format!("Wizard done: {added} added, {open} need you."));
+                    self.wizard_inputs.clear();
+                    self.wizard = Some(summary);
+                    self.reload();
+                }
+                Msg::Wizard(Err(e)) => {
+                    self.error(e);
+                    self.reload();
+                }
                 Msg::Prepared(file, Ok(Prepared::AlreadyThere(_))) => {
                     self.info(format!("{} is already in the box.", file_name(&file)));
                 }
@@ -713,6 +872,179 @@ impl App {
     }
 
     // ----- drawing -----
+
+    fn wizard_tab(&mut self, ui: &mut egui::Ui) {
+        let idle = self.busy.is_none();
+        ui.heading("Drop your PDFs, the wizard does the rest");
+        ui.weak(
+            "Each PDF is checked; an incomplete scan is completed with its counterpart from \
+             the same pile and sorted; an unreadable name gets a readable one; then it is added \
+             to the box. Anything it cannot decide safely is left for you. Nothing is deleted.",
+        );
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(idle, egui::Button::new("Choose PDFs…"))
+                .clicked()
+                && let Some(paths) = rfd::FileDialog::new()
+                    .add_filter("PDF", &["pdf", "PDF"])
+                    .pick_files()
+            {
+                self.add_wizard_inputs(paths);
+            }
+            if ui
+                .add_enabled(idle, egui::Button::new("Choose a folder…"))
+                .clicked()
+                && let Some(dir) = rfd::FileDialog::new().pick_folder()
+            {
+                self.add_wizard_inputs([dir]);
+            }
+            if ui
+                .add_enabled(
+                    idle && !self.wizard_inputs.is_empty(),
+                    egui::Button::new("Clear"),
+                )
+                .clicked()
+            {
+                self.wizard_inputs.clear();
+            }
+        });
+        if self.wizard_inputs.is_empty() {
+            ui.weak("Or drop PDFs or folders on this window.");
+        } else {
+            for path in &self.wizard_inputs {
+                let kind = if path.is_dir() { "folder" } else { "PDF" };
+                ui.label(format!("{kind}: {}", path.display()));
+            }
+            ui.add_space(4.0);
+            if ui
+                .add_enabled(
+                    idle,
+                    egui::Button::new(egui::RichText::new("Start").strong()),
+                )
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.start_wizard(&ctx);
+            }
+        }
+        ui.separator();
+
+        let mut open_in_files = None;
+        let mut trash_spare = false;
+        egui::ScrollArea::vertical()
+            .id_salt("wizard")
+            .auto_shrink([false, false])
+            .stick_to_bottom(!idle)
+            .show(ui, |ui| {
+                let Some(summary) = &self.wizard else {
+                    for line in &self.wizard_log {
+                        ui.monospace(line);
+                    }
+                    return;
+                };
+                let needs_you: Vec<&wizard::Item> = summary
+                    .items
+                    .iter()
+                    .filter(|i| matches!(i.status, Status::NeedsYou(_)))
+                    .collect();
+                if !needs_you.is_empty() {
+                    ui.heading(format!("Needs you ({})", needs_you.len()));
+                    for item in &needs_you {
+                        if let Status::NeedsYou(why) = &item.status {
+                            ui.label(egui::RichText::new(file_name(&item.file)).strong());
+                            ui.label(why);
+                            for step in &item.steps {
+                                ui.weak(format!("done: {step}"));
+                            }
+                            ui.add_space(4.0);
+                        }
+                    }
+                    if ui
+                        .button("Open these in Files")
+                        .on_hover_text("To name, sort, check or add them yourself")
+                        .clicked()
+                    {
+                        open_in_files = Some(
+                            needs_you
+                                .iter()
+                                .map(|i| i.file.clone())
+                                .filter(|p| p.is_file())
+                                .collect::<Vec<_>>(),
+                        );
+                    }
+                    ui.add_space(8.0);
+                }
+                let added: Vec<&wizard::Item> = summary
+                    .items
+                    .iter()
+                    .filter(|i| matches!(i.status, Status::Added { .. }))
+                    .collect();
+                if !added.is_empty() {
+                    ui.heading(format!("Added to the box ({})", added.len()));
+                    for item in &added {
+                        if let Status::Added { entry, .. } = &item.status {
+                            ui.horizontal(|ui| {
+                                ui.monospace(&entry.date);
+                                ui.vertical(|ui| {
+                                    ui.label(egui::RichText::new(&entry.summary).strong());
+                                    ui.weak(format!(
+                                        "{}  ·  {}",
+                                        entry.tags,
+                                        file_name(&item.file)
+                                    ));
+                                    for step in &item.steps {
+                                        ui.weak(step);
+                                    }
+                                });
+                            });
+                            ui.add_space(4.0);
+                        }
+                    }
+                    let spare = summary.spare_originals();
+                    if !spare.is_empty() {
+                        let names: Vec<String> = spare.iter().map(|p| file_name(p)).collect();
+                        ui.label(format!(
+                            "The scans {} were merged into documents that are now in the box.",
+                            names.join(", ")
+                        ));
+                        if ui
+                            .add_enabled(idle, egui::Button::new("Move them to the Trash"))
+                            .clicked()
+                        {
+                            trash_spare = true;
+                        }
+                    }
+                    ui.add_space(8.0);
+                }
+                let rest: Vec<&wizard::Item> = summary
+                    .items
+                    .iter()
+                    .filter(|i| matches!(i.status, Status::AlreadyInBox | Status::Skipped(_)))
+                    .collect();
+                if !rest.is_empty() {
+                    ui.heading(format!("Nothing to do ({})", rest.len()));
+                    for item in rest {
+                        ui.weak(item.line());
+                    }
+                    ui.add_space(8.0);
+                }
+                egui::CollapsingHeader::new(format!("Log ({} lines)", self.wizard_log.len()))
+                    .id_salt("wizard-log")
+                    .show(ui, |ui| {
+                        for line in &self.wizard_log {
+                            ui.monospace(line);
+                        }
+                    });
+            });
+        if let Some(files) = open_in_files {
+            self.open_files(files);
+        }
+        if trash_spare {
+            // The list hides them afterwards: `spare_originals` only shows files that exist.
+            self.trash_spare_originals();
+        }
+    }
 
     fn files_tab(&mut self, ui: &mut egui::Ui) {
         let idle = self.busy.is_none();
@@ -1279,12 +1611,17 @@ impl eframe::App for App {
                 .collect()
         });
         if !dropped.is_empty() {
-            self.open_files(dropped);
+            if self.tab == Tab::Wizard {
+                self.add_wizard_inputs(dropped);
+            } else {
+                self.open_files(dropped);
+            }
         }
         self.next_proposal(&ctx);
 
         egui::Panel::top("tabs").show(ui, |ui| {
             ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.tab, Tab::Wizard, "Wizard");
                 ui.selectable_value(&mut self.tab, Tab::Files, "Files");
                 ui.selectable_value(&mut self.tab, Tab::Find, "Find");
                 let add_label = match self.queue.len() + self.current.is_some() as usize {
@@ -1304,8 +1641,13 @@ impl eframe::App for App {
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 if let Some(what) = &self.busy {
+                    let mut cancel = ui.button("Cancel").clicked();
+                    cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
                     ui.spinner();
-                    ui.label(what);
+                    ui.label(what.as_str());
+                    if cancel {
+                        self.cancel_job();
+                    }
                 } else if let Some((text, is_error)) = &self.status {
                     if *is_error {
                         ui.colored_label(ui.visuals().error_fg_color, text);
@@ -1318,6 +1660,7 @@ impl eframe::App for App {
             });
         });
         egui::CentralPanel::default_margins().show(ui, |ui| match self.tab {
+            Tab::Wizard => self.wizard_tab(ui),
             Tab::Files => self.files_tab(ui),
             Tab::Find => self.find_tab(ui),
             Tab::Add => self.add_tab(ui),

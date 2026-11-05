@@ -124,6 +124,7 @@ a3f9…   2026-03-14  bescheid.pdf      steuer,finanzamt  Steuerbescheid 2025, N
 | `sort <scan.pdf> [--out <file.pdf>] [--delete-blank]` | Let the AI put the pages of one PDF into reading order, then ask me to accept or edit. Writes one PDF with the same pages (default `<scan>_sorted.pdf`); if there are blank pages, it asks at the end whether to delete them (`--delete-blank` deletes them without asking). |
 | `check <scan.pdf> [--in <folder>]` | General health check: from the printed page numbers, is the scan complete (missing pages, blank pages, duplicates)? Is the file name readable? Is it already in the box? Then offers the fixes: `counterpart` if pages are missing, and a readable name (as with `name`) if the name is not, for the merged result if one was made. |
 | `counterpart <scan.pdf> [--in <folder>]` | Look through the other PDFs in the same folder (or `--in`) for the missing pages. A match must contain a missing page, must not contain the scan's own page numbers (another copy or another letter) or a different "von N", and must share at least 2 reference numbers or dates. Matches that share numbers found in few other PDFs (letter date, invoice number rather than contract number or IBAN) come first; every PDF not suggested is listed with the reason. If I agree, merge and sort both into `<scan>_complete.pdf`, then ask whether to move the two originals to the Trash. |
+| `wizard <pdf or folder>…` | Handle a whole pile without questions: check every PDF, complete incomplete scans with their counterpart from the same pile (merge and sort), give unreadable names a readable one, and add each document to the box. Whatever it cannot decide safely is listed for me with the reason. At the end it offers to move the merged originals to the Trash; nothing else is deleted. |
 | `verify` (planned) | Rehash every file in `store/` and compare with the index. Reports missing, unknown or corrupted files.                                                                                            |
 
 `shoebox --help` lists all commands, and `shoebox <command> --help` (e.g.
@@ -223,6 +224,37 @@ shoebox check input/nebenkostenabrechnung.pdf
    its confirmation. The result is `<scan>_complete.pdf`; the originals stay as
    they are. Pages still missing afterwards are reported.
 
+### The wizard: a whole pile at once
+
+```
+shoebox wizard ~/Desktop/scans
+```
+
+Dump all PDFs into a folder (or name them one by one) and let the wizard do what
+I would otherwise do file by file, without asking:
+
+1. **Check** every PDF (OCR if needed). Identical copies within the pile are
+   skipped; files already in the box are left alone.
+2. **Complete**: an incomplete scan is merged with its counterpart, looked for
+   among the other files of the pile with the same rules as `counterpart`, and
+   the pages are sorted (`<scan>_complete.pdf`; blank pages go to the end).
+   Each file is used for one document only.
+3. **Add** to the box with the AI's date, tags and summary, without my review.
+   An unreadable name like `IMG_20261103090559.pdf` gets a readable one from the
+   same request (one model call per document instead of two).
+
+It leaves a document for me, with the reason, when it cannot decide safely:
+pages are missing and no file of the pile holds them, two files fit equally well,
+pages are still missing after completing, one printed page number is on several
+pages (several documents in one scan?), or the model gave no usable entry.
+The AI only does what it does in the other commands (sort, name, propose the
+entry); which action a file needs is decided by plain rules, which are more
+reliable than asking a small model.
+
+Since entries are not reviewed, look over the "added" list at the end; a wrong
+entry can be fixed in `index.tsv`. Originals are kept, except that the scans
+merged into a document that is now in the box can be moved to the Trash at the end.
+
 ### The window (optional)
 
 Besides the command line there is a small window, `shoebox-gui`. It is built
@@ -235,6 +267,9 @@ cargo build-gui               # one program: target/release/shoebox-gui
 scripts/bundle-macos.sh       # Smart Shoebox.app, to double-click or drag into /Applications
 ```
 
+- **Wizard** (the first tab): drop PDFs or folders, press Start, and watch the log.
+  At the end it lists what needs me (with **Open these in Files** to handle them
+  there), what was added, and offers to move the merged originals to the Trash.
 - **Files**: open one or more PDFs (file dialog or drop them on the window), select
   some and run an action: Add to box, Name, Merge (in list order), Sort (with an
   editable page order and the blank-page choice), Check (one or more files: a report
@@ -245,6 +280,10 @@ scripts/bundle-macos.sh       # Smart Shoebox.app, to double-click or drag into 
 - **Find**: browse all documents or search by question; open a document in Preview
   or show it in Finder.
 - **Add**: review and edit the AI's proposal, then save.
+
+While a job runs, **Cancel** in the status bar (or Esc) stops it and drops the files
+still waiting to be added. A request to the model stops at once; an OCR run that has
+already started finishes in the background, and its result is thrown away.
 
 Started from a terminal it uses the same box as `shoebox`. Started by a double
 click it uses the box chosen last time, or asks for one once (and offers to create

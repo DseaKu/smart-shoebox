@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use smart_shoebox::{
-    Res, add, complete, config, find, llm::Llm, merge, prompt, rename, sort, workspace,
+    Res, add, complete, config, find, llm::Llm, merge, prompt, rename, sort, wizard, workspace,
     workspace::Workspace,
 };
 use std::path::PathBuf;
@@ -11,7 +11,7 @@ use std::process::exit;
 #[command(
     name = "shoebox",
     version,
-    after_help = "add, find, name, sort, check and counterpart use the nearest box: the current \
+    after_help = "add, find, name, sort, check, counterpart and wizard use the nearest box: the current \
 folder or one above it, or its box/ subfolder. Set SHOEBOX_DIR to use one somewhere else."
 )]
 struct Cli {
@@ -91,6 +91,12 @@ enum Command {
         #[arg(long = "in", value_name = "FOLDER")]
         search_in: Option<PathBuf>,
     },
+    /// Handle a pile of PDFs without questions: check, complete, name and add each one
+    Wizard {
+        /// PDFs and/or folders of PDFs
+        #[arg(required = true, num_args = 1.., value_name = "PDF or FOLDER")]
+        inputs: Vec<PathBuf>,
+    },
 }
 
 /// Finds the box, loads its settings and sets up the model from them.
@@ -154,6 +160,10 @@ async fn run(command: Command) -> Res<()> {
         Command::Counterpart { file, search_in } => {
             let (_ws, config, llm) = open_box()?;
             complete::counterpart(&config, &llm, &file, search_in.as_deref()).await
+        }
+        Command::Wizard { inputs } => {
+            let (ws, config, llm) = open_box()?;
+            wizard::run(&config, &ws, &llm, &inputs).await
         }
     }
 }

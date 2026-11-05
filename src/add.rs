@@ -55,13 +55,28 @@ pub async fn prepare(
     llm: &impl Model,
     file: &Path,
 ) -> Res<Prepared> {
+    prepare_with_text(config, ws, llm, file, None).await
+}
+
+/// Like `prepare`, with the document's text if the caller already has it (so it
+/// is not read and OCR'd again).
+pub async fn prepare_with_text(
+    config: &Config,
+    ws: &Workspace,
+    llm: &impl Model,
+    file: &Path,
+    known_text: Option<&str>,
+) -> Res<Prepared> {
     let hash = hash::sha256_file(file)?;
     let index = index::read(&ws.index_path())?;
     if index::contains(&index, &hash) {
         return Ok(Prepared::AlreadyThere(store::path(ws, &hash)));
     }
 
-    let text = pdf::extract_text(file, &config.ocr_language)?;
+    let text = match known_text {
+        Some(text) => text.to_string(),
+        None => pdf::extract_text(file, &config.ocr_language)?,
+    };
 
     eprintln!("Asking {} for date, tags and summary…", llm.name());
     let (entry, model_error) = match propose(llm, &text, &index::tags(&index), config.review).await
@@ -88,6 +103,40 @@ pub fn save(ws: &Workspace, proposal: &Proposal, entry: &Entry) -> Res<PathBuf> 
     let stored = store::copy(ws, &proposal.file, &proposal.hash)?;
     index::append(&ws.index_path(), &proposal.hash, &original_name, &entry)?;
     Ok(stored)
+}
+
+/// For the wizard: the entry and a title for the file name from one request
+/// (instead of `name` and `add` asking separately). With `review`, the reviewer
+/// checks the entry part, as in `propose`.
+pub async fn propose_named(
+    llm: &impl Model,
+    text: &str,
+    existing_tags: &[String],
+    review: bool,
+) -> Result<(Entry, String), String> {
+    let context = entry_context(text, existing_tags);
+    let answer: NamedAnswer = llm.ask_for(roles::CATALOGUER, &context).await?;
+    let title = answer.title.trim().to_string();
+    let proposal = EntryAnswer {
+        date: answer.date,
+        tags: answer.tags,
+        summary: answer.summary,
+    };
+    let entry = if review {
+        reviewed(llm, &context, proposal).await?
+    } else {
+        proposal.into()
+    };
+    Ok((entry, title))
+}
+
+/// The cataloguer's answer: an entry plus a title.
+#[derive(Deserialize, JsonSchema)]
+struct NamedAnswer {
+    date: String,
+    title: String,
+    tags: Vec<String>,
+    summary: String,
 }
 
 /// The extractor's and reviewer's answer.
@@ -118,17 +167,25 @@ async fn propose(
     existing_tags: &[String],
     review: bool,
 ) -> Result<Entry, String> {
+    let context = entry_context(text, existing_tags);
+    let proposal: EntryAnswer = llm.ask_for(roles::EXTRACTOR, &context).await?;
+    if !review {
+        return Ok(proposal.into());
+    }
+    reviewed(llm, &context, proposal).await
+}
+
+fn entry_context(text: &str, existing_tags: &[String]) -> String {
     let tag_list = if existing_tags.is_empty() {
         "(none yet)".to_string()
     } else {
         existing_tags.join(", ")
     };
-    let context = format!("Existing tags: {tag_list}\n\nDocument text:\n{text}");
+    format!("Existing tags: {tag_list}\n\nDocument text:\n{text}")
+}
 
-    let proposal: EntryAnswer = llm.ask_for(roles::EXTRACTOR, &context).await?;
-    if !review {
-        return Ok(proposal.into());
-    }
+/// The reviewer checks the proposal against the text; if it fails, the proposal is used.
+async fn reviewed(llm: &impl Model, context: &str, proposal: EntryAnswer) -> Result<Entry, String> {
     let proposal_json = serde_json::to_string(&proposal).map_err(|e| e.to_string())?;
     match llm
         .ask_for::<EntryAnswer>(

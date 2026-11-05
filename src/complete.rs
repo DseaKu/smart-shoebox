@@ -339,6 +339,58 @@ pub fn search_counterparts(
 
 /// The decision itself, without reading files (see `search_counterparts`).
 fn rank_counterparts(scan: &Scan, report: &Report, others: Vec<(PathBuf, Scan)>) -> Search {
+    let pool: Vec<(&Path, &Scan)> = others.iter().map(|(p, s)| (p.as_path(), s)).collect();
+    let (fits, rejected) = judge(scan, report, &pool);
+    let mut others: Vec<Option<(PathBuf, Scan)>> = others.into_iter().map(Some).collect();
+    let candidates = fits
+        .into_iter()
+        .map(|(i, fit)| {
+            let (path, scan) = others[i].take().expect("each file is judged once");
+            (path, scan, fit)
+        })
+        .map(|(path, scan, fit)| Candidate {
+            path,
+            scan,
+            fills: fit.fills,
+            shared: fit.shared,
+            distinctive: fit.distinctive,
+            examples: fit.examples,
+            still: fit.still,
+        })
+        .collect();
+    Search {
+        candidates,
+        rejected,
+    }
+}
+
+/// Files that are no counterpart, with the reason.
+pub type Rejected = Vec<(PathBuf, String)>;
+
+/// How well one file of a pool fits as the counterpart (see `Candidate`).
+pub struct Fit {
+    pub fills: Vec<u32>,
+    pub shared: usize,
+    pub distinctive: usize,
+    pub examples: Vec<String>,
+    pub still: Vec<u32>,
+}
+
+impl Fit {
+    /// What the ranking compares: missing pages filled, distinctive and all shared numbers.
+    pub fn rank(&self) -> (usize, usize, usize) {
+        (self.fills.len(), self.distinctive, self.shared)
+    }
+}
+
+/// Judges every file of `others` as counterpart of the incomplete `scan`, without
+/// taking the scans: the fitting ones as (index into `others`, fit), best first,
+/// and the others with the reason.
+pub fn judge(
+    scan: &Scan,
+    report: &Report,
+    others: &[(&Path, &Scan)],
+) -> (Vec<(usize, Fit)>, Rejected) {
     let own_ids = identifiers(&scan.pages);
     let other_ids: Vec<HashSet<String>> =
         others.iter().map(|(_, s)| identifiers(&s.pages)).collect();
@@ -351,7 +403,8 @@ fn rank_counterparts(scan: &Scan, report: &Report, others: Vec<(PathBuf, Scan)>)
 
     let mut candidates = Vec::new();
     let mut rejected = Vec::new();
-    for ((path, other), ids) in others.into_iter().zip(&other_ids) {
+    for (index, ((path, other), ids)) in others.iter().zip(&other_ids).enumerate() {
+        let path = path.to_path_buf();
         let numbered = || {
             other
                 .pages
@@ -435,24 +488,22 @@ fn rank_counterparts(scan: &Scan, report: &Report, others: Vec<(PathBuf, Scan)>)
             .filter(|n| !fills.contains(n))
             .skip(unnumbered)
             .collect();
-        candidates.push(Candidate {
-            path,
-            scan: other,
-            fills,
-            shared: shared.len(),
-            distinctive,
-            examples: shared.into_iter().take(3).collect(),
-            still,
-        });
+        candidates.push((
+            index,
+            Fit {
+                fills,
+                shared: shared.len(),
+                distinctive,
+                examples: shared.into_iter().take(3).collect(),
+                still,
+            },
+        ));
     }
     // Best first: fills the most missing pages, then shares the most numbers that
     // set it apart, then the most numbers at all.
-    candidates.sort_by_key(|c| std::cmp::Reverse((c.fills.len(), c.distinctive, c.shared)));
+    candidates.sort_by_key(|(_, fit)| std::cmp::Reverse(fit.rank()));
     rejected.sort();
-    Search {
-        candidates,
-        rejected,
-    }
+    (candidates, rejected)
 }
 
 /// The "von N" totals printed on the pages.
@@ -489,12 +540,14 @@ pub fn describe(candidate: &Candidate) -> String {
 /// needs no second OCR). Returns it and where the sorted result should go:
 /// `<file>_complete.pdf`.
 pub fn merge_with(file: &Path, scan: &Scan, candidate: &Candidate) -> Res<(TempFile, PathBuf)> {
+    merge_scans(file, scan, &candidate.scan)
+}
+
+/// Like `merge_with`, for any two scans.
+pub fn merge_scans(file: &Path, scan: &Scan, other: &Scan) -> Res<(TempFile, PathBuf)> {
     let merged = TempFile::new("counterpart-merged");
     pdfdoc::merge(
-        &[
-            scan.source().to_path_buf(),
-            candidate.scan.source().to_path_buf(),
-        ],
+        &[scan.source().to_path_buf(), other.source().to_path_buf()],
         merged.path(),
     )?;
     let out = pdfdoc::output_path(None, file, "complete")?;

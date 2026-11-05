@@ -2,7 +2,7 @@
 //! They run without Ollama and without OCR (the test PDFs contain real text).
 
 use crate::testutil::{FakeModel, TestBox, pdf};
-use crate::{add, complete, find, index, prompt, rename, sort, store};
+use crate::{add, complete, find, index, prompt, rename, sort, store, wizard};
 use std::fs;
 
 const TAX_NOTICE: &str =
@@ -278,4 +278,103 @@ fn counterpart_search_and_merge_work_without_questions() {
     let (merged, out) = complete::merge_with(&fronts, &diagnosis.scan, &candidates[0]).unwrap();
     assert_eq!(page_texts(merged.path()).len(), 3);
     assert_eq!(out.file_name().unwrap(), "fronts_complete.pdf");
+}
+
+#[tokio::test]
+async fn wizard_completes_names_and_adds_a_pile_and_leaves_the_rest_to_me() {
+    let t = TestBox::new("wizard");
+    let pile = t.dir.join("pile");
+    fs::create_dir_all(&pile).unwrap();
+    let reference = "Vertragsnummer 1051.00012.06 vom 29.10.2025";
+    // Fronts and backs of a two-sided letter, scanned in two passes.
+    pdf(
+        &pile.join("IMG_0001.pdf"),
+        &[
+            &format!("Seite 1 von 3\nNebenkostenabrechnung LEG\n{reference}"),
+            &format!("Seite 3 von 3\nGuthaben und Zahlungen\n{reference}"),
+        ],
+    );
+    pdf(
+        &pile.join("IMG_0002.pdf"),
+        &[&format!(
+            "Seite 2 von 3\nHeizkosten und Wasser\n{reference}"
+        )],
+    );
+    // A complete one-page letter, and an identical copy of it.
+    pdf(&pile.join("IMG_0003.pdf"), &[TAX_NOTICE]);
+    fs::copy(pile.join("IMG_0003.pdf"), pile.join("IMG_0003 copy.pdf")).unwrap();
+    // Page 2 of something whose page 1 is not in the pile.
+    pdf(
+        &pile.join("IMG_0004.pdf"),
+        &["Seite 2 von 2\nStadtwerke Abschlag 4711.0815 vom 03.11.2026"],
+    );
+
+    let model = FakeModel::new(|role, message| match role {
+        "sorter" => r#"{"documents": [{"title": "Abrechnung", "pages": [1, 2, 3]}]}"#.to_string(),
+        "cataloguer" if message.contains("Nebenkosten") => r#"{"date": "2025-10-29",
+            "title": "Nebenkostenabrechnung LEG", "tags": ["wohnung"],
+            "summary": "Nebenkostenabrechnung 2024 der LEG, Guthaben"}"#
+            .to_string(),
+        "cataloguer" => r#"{"date": "2026-03-14", "title": "Steuerbescheid 2025",
+            "tags": ["steuer"], "summary": "Steuerbescheid 2025, Nachzahlung 312 EUR"}"#
+            .to_string(),
+        other => panic!("unexpected role {other}"),
+    });
+
+    prompt::script(&[]); // it must not ask anything
+    let mut log = Vec::new();
+    let summary = wizard::handle(
+        &t.config,
+        &t.ws,
+        &model,
+        std::slice::from_ref(&pile),
+        &mut |line| log.push(line),
+    )
+    .await
+    .unwrap();
+    let lines: Vec<String> = summary.items.iter().map(|i| i.line()).collect();
+
+    let rows = index::parse(&index::read(&t.ws.index_path()).unwrap());
+    let mut summaries: Vec<&str> = rows.iter().map(|r| r.summary.as_str()).collect();
+    summaries.sort();
+    assert_eq!(
+        summaries,
+        [
+            "Nebenkostenabrechnung 2024 der LEG, Guthaben",
+            "Steuerbescheid 2025, Nachzahlung 312 EUR"
+        ],
+        "{lines:#?}"
+    );
+    let completed = pile.join("2025-10-29_nebenkostenabrechnung-leg.pdf");
+    let texts = page_texts(&completed);
+    assert!(texts[0].starts_with("Seite 1 von 3"), "{texts:?}");
+    assert!(texts[1].starts_with("Seite 2 von 3"), "{texts:?}");
+    assert!(texts[2].starts_with("Seite 3 von 3"), "{texts:?}");
+    assert!(pile.join("2026-03-14_steuerbescheid-2025.pdf").is_file());
+
+    let needs_you: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.starts_with("needs you"))
+        .collect();
+    assert_eq!(needs_you.len(), 1, "{lines:#?}");
+    assert!(needs_you[0].contains("IMG_0004.pdf"), "{lines:#?}");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("skipped: IMG_0003") && l.contains(": identical copy of")),
+        "{lines:#?}"
+    );
+    // The two scans of the letter can go; their pages are in the box.
+    let mut spare = summary.spare_originals();
+    spare.sort();
+    assert_eq!(
+        spare,
+        [pile.join("IMG_0001.pdf"), pile.join("IMG_0002.pdf")]
+    );
+    assert!(log.len() > lines.len(), "progress is logged as it goes");
+    assert_eq!(
+        model.calls(),
+        ["sorter", "cataloguer", "cataloguer"],
+        "one request per document for name and entry"
+    );
 }
