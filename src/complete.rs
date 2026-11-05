@@ -245,34 +245,40 @@ fn report_lines(file: &Path, pages: &[Page], report: &Report) -> Vec<String> {
 }
 
 /// A PDF that holds missing pages of the same document.
-struct Candidate {
-    path: PathBuf,
-    scan: Scan,
+pub struct Candidate {
+    pub path: PathBuf,
+    pub scan: Scan,
     /// Missing page numbers it contains.
-    fills: Vec<u32>,
+    pub fills: Vec<u32>,
     /// Reference numbers and dates it shares with the incomplete scan.
-    shared: usize,
+    pub shared: usize,
+    /// Pages that would still be missing after merging with it.
+    pub still: Vec<u32>,
 }
 
-async fn find_counterpart(
-    config: &Config,
-    llm: &impl Model,
-    file: &Path,
-    scan: &Scan,
-    report: &Report,
-    search_in: Option<&Path>,
-) -> Res<Option<PathBuf>> {
-    let dir = match search_in {
+/// Where to look for a counterpart: `search_in`, else the file's folder.
+pub fn search_dir(file: &Path, search_in: Option<&Path>) -> PathBuf {
+    match search_in {
         Some(dir) => dir.to_path_buf(),
         None => match file.parent() {
             Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
             _ => PathBuf::from("."),
         },
-    };
-    let paths = candidate_paths(file, &dir)?;
+    }
+}
+
+/// Reads every other PDF in `dir` and returns the ones that contain a missing
+/// page and share at least `MIN_SHARED` reference numbers or dates, best first.
+pub fn search_counterparts(
+    config: &Config,
+    file: &Path,
+    scan: &Scan,
+    report: &Report,
+    dir: &Path,
+) -> Res<Vec<Candidate>> {
+    let paths = candidate_paths(file, dir)?;
     if paths.is_empty() {
-        println!("No other PDFs in {}.", dir.display());
-        return Ok(None);
+        return Ok(Vec::new());
     }
     let plural = if paths.len() == 1 { "" } else { "s" };
     eprintln!(
@@ -303,18 +309,62 @@ async fn find_counterpart(
             })
             .collect();
         let shared = own_ids.intersection(&identifiers(&other.pages)).count();
-        if !fills.is_empty() && shared >= MIN_SHARED {
-            candidates.push(Candidate {
-                path,
-                scan: other,
-                fills,
-                shared,
-            });
+        if fills.is_empty() || shared < MIN_SHARED {
+            continue;
         }
+        // Like in `sort`, the counterpart's unnumbered pages (often page 1 with the
+        // letterhead) are assumed to fill the lowest remaining gaps.
+        let unnumbered = other
+            .pages
+            .iter()
+            .filter(|p| p.is_content() && p.printed_number.is_none())
+            .count();
+        let still = report
+            .missing
+            .iter()
+            .copied()
+            .filter(|n| !fills.contains(n))
+            .skip(unnumbered)
+            .collect();
+        candidates.push(Candidate {
+            path,
+            scan: other,
+            fills,
+            shared,
+            still,
+        });
     }
     // Best first: fills the most missing pages, then shares the most references.
     candidates.sort_by_key(|c| std::cmp::Reverse((c.fills.len(), c.shared)));
+    Ok(candidates)
+}
 
+/// Merges the searchable versions of both scans into a temporary PDF (so sorting
+/// needs no second OCR). Returns it and where the sorted result should go:
+/// `<file>_complete.pdf`.
+pub fn merge_with(file: &Path, scan: &Scan, candidate: &Candidate) -> Res<(TempFile, PathBuf)> {
+    let merged = TempFile::new("counterpart-merged");
+    pdfdoc::merge(
+        &[
+            scan.source().to_path_buf(),
+            candidate.scan.source().to_path_buf(),
+        ],
+        merged.path(),
+    )?;
+    let out = pdfdoc::output_path(None, file, "complete")?;
+    Ok((merged, out))
+}
+
+async fn find_counterpart(
+    config: &Config,
+    llm: &impl Model,
+    file: &Path,
+    scan: &Scan,
+    report: &Report,
+    search_in: Option<&Path>,
+) -> Res<Option<PathBuf>> {
+    let dir = search_dir(file, search_in);
+    let candidates = search_counterparts(config, file, scan, report, &dir)?;
     if candidates.is_empty() {
         println!(
             "No counterpart found in {}. It must contain at least one missing page and share \
@@ -325,21 +375,6 @@ async fn find_counterpart(
     }
 
     for candidate in &candidates {
-        // Like in `sort`, the counterpart's unnumbered pages (often page 1 with the
-        // letterhead) are assumed to fill the lowest remaining gaps.
-        let unnumbered = candidate
-            .scan
-            .pages
-            .iter()
-            .filter(|p| p.is_content() && p.printed_number.is_none())
-            .count();
-        let still: Vec<u32> = report
-            .missing
-            .iter()
-            .copied()
-            .filter(|n| !candidate.fills.contains(n))
-            .skip(unnumbered)
-            .collect();
         println!();
         println!("Possible counterpart: {}", candidate.path.display());
         println!(
@@ -347,29 +382,23 @@ async fn find_counterpart(
             join_numbers(&candidate.fills),
             candidate.shared
         );
-        if !still.is_empty() {
-            println!("  still missing afterwards: {}", join_numbers(&still));
+        if !candidate.still.is_empty() {
+            println!(
+                "  still missing afterwards: {}",
+                join_numbers(&candidate.still)
+            );
         }
         if !prompt::ask_yes_no("Merge and sort with this file? [y]es / [n]o: ")? {
             continue;
         }
 
-        // Merge the searchable versions, so sort does not run OCR on them again.
-        let merged = TempFile::new("counterpart-merged");
-        pdfdoc::merge(
-            &[
-                scan.source().to_path_buf(),
-                candidate.scan.source().to_path_buf(),
-            ],
-            merged.path(),
-        )?;
-        let out = pdfdoc::output_path(None, file, "complete")?;
+        let (merged, out) = merge_with(file, scan, candidate)?;
         let written = sort::run(config, llm, merged.path(), Some(&out), false).await?;
         if written.is_some() {
-            if !still.is_empty() {
+            if !candidate.still.is_empty() {
                 println!(
                     "Still missing: printed page {}. Run `counterpart` on the result to look further.",
-                    join_numbers(&still)
+                    join_numbers(&candidate.still)
                 );
             }
             trash::offer(&[file.to_path_buf(), candidate.path.clone()])?;

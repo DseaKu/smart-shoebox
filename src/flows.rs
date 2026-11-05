@@ -244,3 +244,37 @@ async fn check_finds_the_counterpart_merges_sorts_and_names_the_result() {
     assert!(texts[2].starts_with("Seite 3 von 3"), "{texts:?}");
     assert_eq!(model.calls(), ["sorter", "namer"]);
 }
+
+#[test]
+fn counterpart_search_and_merge_work_without_questions() {
+    // The GUI's path: search, show candidates, merge the chosen one.
+    let t = TestBox::new("counterpart-gui");
+    let reference = "Kundennummer 4711.0815 vom 03.11.2026";
+    let fronts = t.dir.join("fronts.pdf");
+    let backs = t.dir.join("backs.pdf");
+    let other = t.dir.join("other.pdf");
+    pdf(
+        &fronts,
+        &[
+            &format!("Seite 1 von 3\nStromrechnung\n{reference}"),
+            &format!("Seite 3 von 3\nZahlungen\n{reference}"),
+        ],
+    );
+    pdf(&backs, &[&format!("Seite 2 von 3\nVerbrauch\n{reference}")]);
+    pdf(&other, &["Seite 2 von 3\nEin anderer Brief 1234.5678"]);
+
+    let diagnosis = complete::diagnose(&t.config, &t.ws, &fronts).unwrap();
+    assert!(diagnosis.report.is_incomplete());
+    let dir = complete::search_dir(&fronts, None);
+    let candidates =
+        complete::search_counterparts(&t.config, &fronts, &diagnosis.scan, &diagnosis.report, &dir)
+            .unwrap();
+    assert_eq!(candidates.len(), 1, "other.pdf shares no references");
+    assert_eq!(candidates[0].path, backs);
+    assert_eq!(candidates[0].fills, [2]);
+    assert!(candidates[0].still.is_empty());
+
+    let (merged, out) = complete::merge_with(&fronts, &diagnosis.scan, &candidates[0]).unwrap();
+    assert_eq!(page_texts(merged.path()).len(), 3);
+    assert_eq!(out.file_name().unwrap(), "fronts_complete.pdf");
+}

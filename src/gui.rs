@@ -13,14 +13,14 @@
 use crate::{
     Res,
     add::{self, Prepared, Proposal},
-    complete::{self, Diagnosis},
+    complete::{self, Candidate, Diagnosis},
     config::Config,
     entry::Entry,
     find, index,
     index::Row,
     llm::Llm,
-    merge::{self, Merged},
-    pages,
+    merge, pages,
+    pdf::TempFile,
     rename::{self, NameProposal},
     sort::{self, SortPlan},
     store, trash,
@@ -60,8 +60,24 @@ enum Msg {
     Found(Result<find::Found, String>),
     Prepared(PathBuf, Result<Prepared, String>),
     Named(Vec<(PathBuf, Result<NameProposal, String>)>),
-    Sorted(PathBuf, Result<SortPlan, String>),
+    Sorted(PathBuf, Result<SortPlan, String>, SortExtra),
     Checked(PathBuf, Result<Diagnosis, String>),
+    Counterparts {
+        file: PathBuf,
+        diagnosis: Diagnosis,
+        dir: PathBuf,
+        result: Result<Vec<Candidate>, String>,
+    },
+}
+
+/// For sorting a scan merged with its counterpart: the temporary merged PDF
+/// (kept until the result is written), the two originals and what is still missing.
+#[derive(Default)]
+struct SortExtra {
+    /// Only held, so the merged PDF exists until the result is written.
+    _temp: Option<TempFile>,
+    originals: Vec<PathBuf>,
+    still: Vec<u32>,
 }
 
 /// A file in the Files tab.
@@ -76,7 +92,18 @@ enum Pane {
     Names(Vec<NameItem>),
     Sort(SortView),
     Check(PathBuf, Diagnosis),
-    Merged(Merged, Vec<PathBuf>),
+    Counterparts {
+        file: PathBuf,
+        diagnosis: Diagnosis,
+        dir: PathBuf,
+        candidates: Vec<Candidate>,
+    },
+    /// A result was written; offers to move the originals to the Trash.
+    Done {
+        heading: String,
+        originals: Vec<PathBuf>,
+        offer_trash: bool,
+    },
 }
 
 struct NameItem {
@@ -93,6 +120,7 @@ struct SortView {
     /// The page order I am editing, e.g. `1,3,2; 4,5`.
     order: String,
     delete_blank: bool,
+    extra: SortExtra,
 }
 
 /// Something I clicked in a pane; applied after drawing it.
@@ -105,6 +133,8 @@ enum Click {
     Sort(PathBuf),
     AddToBox(PathBuf),
     TrashOriginals,
+    SearchCounterpart,
+    UseCandidate(usize),
 }
 
 struct App {
@@ -312,7 +342,76 @@ impl App {
             let plan = sort::propose(&config, &llm, &file, None)
                 .await
                 .map_err(|e| e.to_string());
-            Msg::Sorted(file, plan)
+            Msg::Sorted(file, plan, SortExtra::default())
+        });
+    }
+
+    /// Looks for the missing pages in the other PDFs of the file's folder.
+    /// Uses the check's result if there is one, so the file is not OCR'd again.
+    fn start_counterpart(
+        &mut self,
+        ctx: &egui::Context,
+        file: PathBuf,
+        diagnosis: Option<Diagnosis>,
+    ) {
+        let dir = complete::search_dir(&file, None);
+        let what = format!(
+            "Looking for the missing pages of {} in {} (OCR can take a while)…",
+            file_name(&file),
+            dir.display()
+        );
+        self.spawn(ctx, &what, move |ws, config, _llm| async move {
+            let diagnosis = match diagnosis {
+                Some(d) => d,
+                None => match complete::diagnose(&config, &ws, &file) {
+                    Ok(d) => d,
+                    Err(e) => return Msg::Checked(file, Err(e.to_string())),
+                },
+            };
+            let result = if diagnosis.report.is_incomplete() {
+                complete::search_counterparts(
+                    &config,
+                    &file,
+                    &diagnosis.scan,
+                    &diagnosis.report,
+                    &dir,
+                )
+                .map_err(|e| e.to_string())
+            } else {
+                Ok(Vec::new())
+            };
+            Msg::Counterparts {
+                file,
+                diagnosis,
+                dir,
+                result,
+            }
+        });
+    }
+
+    /// Merges the scan with the chosen counterpart and lets the AI sort both.
+    fn start_merge_with(
+        &mut self,
+        ctx: &egui::Context,
+        file: PathBuf,
+        diagnosis: Diagnosis,
+        candidate: Candidate,
+    ) {
+        let what = format!("Merging with {} and sorting…", file_name(&candidate.path));
+        self.spawn(ctx, &what, move |_ws, config, llm| async move {
+            let (temp, out) = match complete::merge_with(&file, &diagnosis.scan, &candidate) {
+                Ok(merged) => merged,
+                Err(e) => return Msg::Sorted(file, Err(e.to_string()), SortExtra::default()),
+            };
+            let plan = sort::propose(&config, &llm, temp.path(), Some(&out))
+                .await
+                .map_err(|e| e.to_string());
+            let extra = SortExtra {
+                _temp: Some(temp),
+                originals: vec![file.clone(), candidate.path],
+                still: candidate.still,
+            };
+            Msg::Sorted(file, plan, extra)
         });
     }
 
@@ -342,7 +441,11 @@ impl App {
                     ));
                 }
                 self.show_result(merged.out.clone());
-                self.pane = Pane::Merged(merged, merge::originals(&files));
+                self.pane = Pane::Done {
+                    heading: format!("Merged into {}", file_name(&merged.out)),
+                    originals: merge::originals(&files),
+                    offer_trash: merged.complete,
+                };
             }
             Err(e) => self.error(e.to_string()),
         }
@@ -401,7 +504,7 @@ impl App {
                     }
                     self.pane = Pane::Names(items);
                 }
-                Msg::Sorted(input, Ok(plan)) => {
+                Msg::Sorted(input, Ok(plan), extra) => {
                     self.status = None;
                     let order = sort::format_groups(&plan.groups);
                     self.pane = Pane::Sort(SortView {
@@ -409,10 +512,49 @@ impl App {
                         plan,
                         order,
                         delete_blank: false,
+                        extra,
                     });
                 }
-                Msg::Sorted(file, Err(e)) | Msg::Checked(file, Err(e)) => {
+                Msg::Sorted(file, Err(e), _) | Msg::Checked(file, Err(e)) => {
                     self.error(format!("{}: {e}", file_name(&file)));
+                }
+                Msg::Counterparts {
+                    file,
+                    diagnosis,
+                    dir,
+                    result,
+                } => {
+                    if !diagnosis.report.is_incomplete() {
+                        self.info(format!(
+                            "{}: no missing pages found, nothing to look for.",
+                            file_name(&file)
+                        ));
+                        self.pane = Pane::Check(file, diagnosis);
+                        continue;
+                    }
+                    match result {
+                        Ok(candidates) => {
+                            if candidates.is_empty() {
+                                self.info(format!(
+                                    "No counterpart found in {}. It must contain a missing page \
+                                     and share at least 2 reference numbers or dates.",
+                                    dir.display()
+                                ));
+                            } else {
+                                self.status = None;
+                            }
+                            self.pane = Pane::Counterparts {
+                                file,
+                                diagnosis,
+                                dir,
+                                candidates,
+                            };
+                        }
+                        Err(e) => {
+                            self.error(format!("{}: {e}", file_name(&file)));
+                            self.pane = Pane::Check(file, diagnosis);
+                        }
+                    }
                 }
                 Msg::Checked(file, Ok(diagnosis)) => {
                     self.status = None;
@@ -463,13 +605,32 @@ impl App {
                     .and_then(|groups| sort::write(&view.plan, &groups, view.delete_blank));
                 match result {
                     Ok((out, count)) => {
-                        let input = view.input.clone();
-                        self.info(format!(
-                            "Wrote {} ({count} pages); {} is unchanged.",
-                            file_name(&out),
-                            file_name(&input)
-                        ));
-                        self.pane = Pane::Empty;
+                        let originals = view.extra.originals.clone();
+                        let still = view.extra.still.clone();
+                        if originals.is_empty() {
+                            self.info(format!(
+                                "Wrote {} ({count} pages); {} is unchanged.",
+                                file_name(&view.input),
+                                file_name(&out)
+                            ));
+                            self.pane = Pane::Empty;
+                        } else {
+                            if still.is_empty() {
+                                self.info(format!("Wrote {} ({count} pages).", file_name(&out)));
+                            } else {
+                                self.error(format!(
+                                    "Wrote {} ({count} pages), but printed page {} is still \
+                                     missing: run Counterpart on it to look further.",
+                                    file_name(&out),
+                                    pages::join_numbers(&still)
+                                ));
+                            }
+                            self.pane = Pane::Done {
+                                heading: format!("Merged and sorted into {}", file_name(&out)),
+                                originals,
+                                offer_trash: true,
+                            };
+                        }
                         self.show_result(out);
                     }
                     Err(e) => self.error(format!("Not written: {e}")),
@@ -478,8 +639,26 @@ impl App {
             Click::Name(file, text) => self.start_naming(ctx, vec![file], text),
             Click::Sort(file) => self.start_sort(ctx, file),
             Click::AddToBox(file) => self.queue_for_box(vec![file]),
+            Click::SearchCounterpart => {
+                if let Pane::Check(file, diagnosis) = std::mem::replace(&mut self.pane, Pane::Empty)
+                {
+                    self.start_counterpart(ctx, file, Some(diagnosis));
+                }
+            }
+            Click::UseCandidate(i) => {
+                if let Pane::Counterparts {
+                    file,
+                    diagnosis,
+                    mut candidates,
+                    ..
+                } = std::mem::replace(&mut self.pane, Pane::Empty)
+                {
+                    let candidate = candidates.swap_remove(i);
+                    self.start_merge_with(ctx, file, diagnosis, candidate);
+                }
+            }
             Click::TrashOriginals => {
-                let Pane::Merged(_, originals) = &self.pane else {
+                let Pane::Done { originals, .. } = &self.pane else {
                     return;
                 };
                 let originals = originals.clone();
@@ -618,6 +797,16 @@ impl App {
             {
                 self.start_check(&ctx, selected[0].clone());
             }
+            if action(
+                ui,
+                idle && n == 1,
+                "Counterpart",
+                "Look for the missing pages in the other PDFs of its folder",
+            )
+            .clicked()
+            {
+                self.start_counterpart(&ctx, selected[0].clone(), None);
+            }
         });
         ui.separator();
 
@@ -674,7 +863,11 @@ impl App {
                 }
             }
             Pane::Sort(view) => {
-                ui.heading(format!("Sort {}", file_name(&view.input)));
+                let heading = match view.extra.originals.as_slice() {
+                    [a, b] => format!("Sort {} + {}", file_name(a), file_name(b)),
+                    _ => format!("Sort {}", file_name(&view.input)),
+                };
+                ui.heading(heading);
                 let pages = &view.plan.scan.pages;
                 let edited = sort::parse_edit(&view.order, pages);
                 let groups = edited.as_ref().unwrap_or(&view.plan.groups);
@@ -761,15 +954,18 @@ impl App {
                 for line in &diagnosis.lines {
                     ui.monospace(line);
                 }
-                if diagnosis.report.is_incomplete() {
-                    ui.add_space(4.0);
-                    ui.weak(
-                        "Pages are missing: open the PDF that has them, select both, \
-                         Merge, then Sort the result.",
-                    );
-                }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
+                    if diagnosis.report.is_incomplete()
+                        && ui
+                            .add_enabled(idle, egui::Button::new("Search counterpart"))
+                            .on_hover_text(
+                                "Look for the missing pages in the other PDFs of its folder",
+                            )
+                            .clicked()
+                    {
+                        click = Some(Click::SearchCounterpart);
+                    }
                     if !diagnosis.readable_name
                         && ui.add_enabled(idle, egui::Button::new("Name it")).clicked()
                     {
@@ -786,14 +982,61 @@ impl App {
                     }
                 });
             }
-            Pane::Merged(merged, originals) => {
-                ui.heading(format!("Merged into {}", file_name(&merged.out)));
+            Pane::Counterparts {
+                file,
+                dir,
+                candidates,
+                ..
+            } => {
+                ui.heading(format!("Counterparts for {}", file_name(file)));
+                ui.weak(format!("Searched {}", dir.display()));
+                if candidates.is_empty() {
+                    ui.label("None found.");
+                }
+                for (i, candidate) in candidates.iter().enumerate() {
+                    ui.add_space(4.0);
+                    ui.strong(file_name(&candidate.path));
+                    ui.label(format!(
+                        "  has missing page {}, shares {} reference numbers/dates",
+                        pages::join_numbers(&candidate.fills),
+                        candidate.shared
+                    ));
+                    if !candidate.still.is_empty() {
+                        ui.label(format!(
+                            "  still missing afterwards: {}",
+                            pages::join_numbers(&candidate.still)
+                        ));
+                    }
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(idle, egui::Button::new("Merge and sort with this"))
+                            .clicked()
+                        {
+                            click = Some(Click::UseCandidate(i));
+                        }
+                        if ui.small_button("Open").clicked() {
+                            let _ = open(&candidate.path, false);
+                        }
+                    });
+                }
+                ui.add_space(8.0);
+                if ui.button("Close").clicked() {
+                    click = Some(Click::Close);
+                }
+            }
+            Pane::Done {
+                heading,
+                originals,
+                offer_trash,
+            } => {
+                ui.heading(heading.as_str());
+                ui.label("From:");
                 for file in originals.iter() {
                     ui.label(format!("  {}", file_name(file)));
                 }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if merged.complete && ui.button("Move the originals to the Trash").clicked() {
+                    if *offer_trash && ui.button("Move the originals to the Trash").clicked() {
                         click = Some(Click::TrashOriginals);
                     }
                     if ui.button("Keep them").clicked() {
