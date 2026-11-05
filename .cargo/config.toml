@@ -1,0 +1,6 @@
+# Shortcuts: `cargo build-gui` builds the window as one program
+# (target/release/shoebox-gui); `cargo run-gui` starts it for development.
+# `scripts/bundle-macos.sh` wraps it into Smart Shoebox.app to double-click.
+[alias]
+build-gui = "build --release --features gui --bin shoebox-gui"
+run-gui = "run --features gui --bin shoebox-gui"

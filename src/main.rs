@@ -1,47 +1,17 @@
-mod add;
-mod complete;
-mod config;
-mod entry;
-mod export;
-mod find;
-mod gui;
-mod hash;
-mod index;
-mod llm;
-mod merge;
-mod naming;
-mod pages;
-mod pdf;
-mod pdfdoc;
-mod prompt;
-mod rename;
-mod roles;
-mod scan;
-mod search;
-mod sort;
-mod store;
-mod trash;
-mod workspace;
-
-#[cfg(test)]
-mod flows;
-#[cfg(test)]
-mod testutil;
-
 use clap::{Parser, Subcommand};
-use llm::Llm;
+use smart_shoebox::{
+    Res, add, complete, config, find, llm::Llm, merge, prompt, rename, sort, workspace,
+    workspace::Workspace,
+};
 use std::path::PathBuf;
 use std::process::exit;
-use workspace::Workspace;
-
-type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
 /// Smart Shoebox: the shoebox for your paperwork, except you can actually find things in it.
 #[derive(Parser)]
 #[command(
     name = "shoebox",
     version,
-    after_help = "add, find, gui, name, sort, check and counterpart use the nearest box: the current \
+    after_help = "add, find, name, sort, check and counterpart use the nearest box: the current \
 folder or one above it, or its box/ subfolder. Set SHOEBOX_DIR to use one somewhere else."
 )]
 struct Cli {
@@ -112,8 +82,6 @@ enum Command {
         #[arg(long = "in", value_name = "FOLDER")]
         search_in: Option<PathBuf>,
     },
-    /// Open a window to find and add documents
-    Gui,
     /// Look for the missing pages of a PDF in another PDF, then merge and sort
     Counterpart {
         /// The incomplete PDF
@@ -182,10 +150,6 @@ async fn run(command: Command) -> Res<()> {
         Command::Check { file, search_in } => {
             let (ws, config, llm) = open_box()?;
             complete::check(&config, &ws, &llm, &file, search_in.as_deref()).await
-        }
-        Command::Gui => {
-            let (ws, config, _llm) = open_box()?;
-            gui::run(ws, config)
         }
         Command::Counterpart { file, search_in } => {
             let (_ws, config, llm) = open_box()?;

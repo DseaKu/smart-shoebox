@@ -48,6 +48,15 @@ impl Workspace {
         })
     }
 
+    /// The box in `dir`, or in its `box/` subfolder (no search upwards).
+    /// Used by the window, which has no meaningful current folder.
+    pub fn open(dir: &Path) -> Option<Self> {
+        [dir.to_path_buf(), dir.join(DEFAULT_DIR)]
+            .into_iter()
+            .find(|candidate| candidate.join(CONFIG_FILE).is_file())
+            .map(|root| Self { root })
+    }
+
     /// Creates a box: `shoebox.yaml` with default settings, `store/` and `index.tsv`.
     /// Files that already exist are left untouched, so running it twice is safe.
     pub fn init(dir: &Path) -> Res<Self> {

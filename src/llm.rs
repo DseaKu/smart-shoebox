@@ -49,6 +49,9 @@ impl Llm {
 
 /// What the commands need from a model. `Llm` talks to Ollama; tests use a
 /// fake model with fixed answers, so the command flows can run without Ollama.
+/// Only used inside this crate with concrete types, so the futures' `Send` bounds
+/// are known where it matters (the GUI runs each job on its own thread anyway).
+#[allow(async_fn_in_trait)]
 pub trait Model {
     /// The model's name, for messages like "Asking qwen3:8b …".
     fn name(&self) -> &str;

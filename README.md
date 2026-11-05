@@ -124,7 +124,6 @@ a3f9…   2026-03-14  bescheid.pdf      steuer,finanzamt  Steuerbescheid 2025, N
 | `sort <scan.pdf> [--out <file.pdf>] [--delete-blank]` | Let the AI put the pages of one PDF into reading order, then ask me to accept or edit. Writes one PDF with the same pages (default `<scan>_sorted.pdf`); if there are blank pages, it asks at the end whether to delete them (`--delete-blank` deletes them without asking). |
 | `check <scan.pdf> [--in <folder>]` | General health check: from the printed page numbers, is the scan complete (missing pages, blank pages, duplicates)? Is the file name readable? Is it already in the box? Then offers the fixes: `counterpart` if pages are missing, and a readable name (as with `name`) if the name is not, for the merged result if one was made. |
 | `counterpart <scan.pdf> [--in <folder>]` | Look through the other PDFs in the same folder (or `--in`) for the missing pages. A match must contain a missing page and share at least 2 reference numbers or dates. If I agree, merge and sort both into `<scan>_complete.pdf`, then ask whether to move the two originals to the Trash. |
-| `gui` | Open a small window. **Files**: open one or more PDFs (file dialog or drop them on the window), select some and run an action: Add to box, Name, Merge (in list order), Sort (with an editable page order and the blank-page choice) Check (report, then Search counterpart / Name it / Sort it / Add to box) or Counterpart (pick one of the PDFs that hold the missing pages, then edit the sort and write `<file>_complete.pdf`; offers to move both originals to the Trash). **Find**: browse all documents or search by question, open a document in Preview or show it in Finder. **Add**: review and edit the AI's proposal, then save. Uses the same code as the commands. No PDF preview inside the window. |
 | `verify` (planned) | Rehash every file in `store/` and compare with the index. Reports missing, unknown or corrupted files.                                                                                            |
 
 `shoebox --help` lists all commands, and `shoebox <command> --help` (e.g.
@@ -220,6 +219,35 @@ shoebox check input/nebenkostenabrechnung.pdf
 3. If I agree, both files are merged and go through the normal `sort`, with
    its confirmation. The result is `<scan>_complete.pdf`; the originals stay as
    they are. Pages still missing afterwards are reported.
+
+### The window (optional)
+
+Besides the command line there is a small window, `shoebox-gui`. It is built
+separately, so a plain `cargo build` / `cargo install --path .` builds only the
+command-line tool, without the GUI libraries.
+
+```sh
+cargo run-gui                 # start it while developing
+cargo build-gui               # one program: target/release/shoebox-gui
+scripts/bundle-macos.sh       # Smart Shoebox.app, to double-click or drag into /Applications
+```
+
+- **Files**: open one or more PDFs (file dialog or drop them on the window), select
+  some and run an action: Add to box, Name, Merge (in list order), Sort (with an
+  editable page order and the blank-page choice), Check (report, then Search
+  counterpart / Name it / Sort it / Add to box) or Counterpart (pick one of the PDFs
+  that hold the missing pages, then edit the sort and write `<file>_complete.pdf`;
+  offers to move both originals to the Trash).
+- **Find**: browse all documents or search by question; open a document in Preview
+  or show it in Finder.
+- **Add**: review and edit the AI's proposal, then save.
+
+Started from a terminal it uses the same box as `shoebox`. Started by a double
+click it uses the box chosen last time, or asks for one once (and offers to create
+it); the choice is remembered in `~/Library/Application Support/Smart Shoebox/`.
+It uses the same code as the commands; there is no PDF preview inside the window.
+`ocrmypdf` and Ollama are still needed. The app is not signed: on another Mac,
+open it the first time with right-click → Open.
 
 ## Design decisions
 
