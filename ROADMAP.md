@@ -92,13 +92,5 @@ and there is no per-command help.
 
 - `verify` and `split` commands
 - Trash support outside macOS
-- Moving the heuristics (blank-page threshold, duplicate similarity) into
-  `shoebox.yaml`
-
-## Removed
-
-- `counterpart` (finding the missing pages of a scan in another PDF), removed on
-  2026-11-05. Matching by shared reference numbers was not reliable on real
-  scans: letters from the same sender share most numbers, so it either suggested
-  every one of them or, made stricter, none. `check` still reports missing pages;
-  completing a scan is `merge` + `sort` by hand.
+- Moving the heuristics (blank-page threshold, duplicate similarity,
+  counterpart matching) into `shoebox.yaml`

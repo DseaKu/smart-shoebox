@@ -1,5 +1,5 @@
 //! Reading a scan page by page, with OCR where needed.
-//! Shared by `sort` and `check`.
+//! Shared by `sort`, `check` and `counterpart`.
 
 use crate::{
     Res,

@@ -193,32 +193,89 @@ async fn sort_orders_by_printed_numbers_even_if_the_model_does_not() {
 }
 
 #[tokio::test]
-async fn check_reports_and_offers_a_readable_name() {
+async fn check_finds_the_counterpart_merges_sorts_and_names_the_result() {
     let t = TestBox::new("check");
-    let fronts = t.dir.join("IMG_0001.pdf");
+    let reference = "Vertragsnummer 1051.00012.06 vom 29.10.2025";
+    let fronts = t.dir.join("fronts.pdf");
+    let backs = t.dir.join("backs.pdf");
     pdf(
         &fronts,
         &[
-            "Seite 1 von 3\nNebenkostenabrechnung LEG vom 29.10.2025",
-            "Seite 3 von 3\nGuthaben und Zahlungen",
+            &format!("Seite 1 von 3\nNebenkostenabrechnung LEG\n{reference}"),
+            &format!("Seite 3 von 3\nGuthaben und Zahlungen\n{reference}"),
         ],
     );
+    pdf(
+        &backs,
+        &[&format!(
+            "Seite 2 von 3\nHeizkosten und Wasser\n{reference}"
+        )],
+    );
     let model = FakeModel::new(|role, _| match role {
+        "sorter" => r#"{"documents": [{"title": "Abrechnung", "pages": [1, 2, 3]}]}"#.to_string(),
         "namer" => r#"{"date": "2025-10-29", "title": "Nebenkostenabrechnung LEG"}"#.to_string(),
         other => panic!("unexpected role {other}"),
     });
 
-    let diagnosis = complete::diagnose(&t.config, &t.ws, &fronts).unwrap();
-    assert_eq!(diagnosis.report.missing, [2]);
-    assert!(!diagnosis.readable_name && !diagnosis.in_box);
-
     prompt::script(&[
-        "y", // give it a readable name?
+        "y", // search for the counterpart?
+        "y", // merge and sort with backs.pdf?
+        "y", // write the PDF in this order?
+        "n", // delete the originals?
+        "y", // give the result a readable name?
         "y", // rename?
     ]);
-    complete::check(&t.config, &t.ws, &model, &fronts)
+    complete::check(&t.config, &t.ws, &model, &fronts, None)
         .await
         .unwrap();
-    assert_eq!(t.files(), ["2025-10-29_nebenkostenabrechnung-leg.pdf"]);
-    assert_eq!(model.calls(), ["namer"]);
+
+    let result = "2025-10-29_nebenkostenabrechnung-leg.pdf";
+    assert_eq!(
+        t.files(),
+        [
+            "2025-10-29_nebenkostenabrechnung-leg.pdf",
+            "backs.pdf",
+            "fronts.pdf"
+        ]
+    );
+    let texts = page_texts(&t.dir.join(result));
+    assert!(texts[0].starts_with("Seite 1 von 3"), "{texts:?}");
+    assert!(texts[1].starts_with("Seite 2 von 3"), "{texts:?}");
+    assert!(texts[2].starts_with("Seite 3 von 3"), "{texts:?}");
+    assert_eq!(model.calls(), ["sorter", "namer"]);
+}
+
+#[test]
+fn counterpart_search_and_merge_work_without_questions() {
+    // The GUI's path: search, show candidates, merge the chosen one.
+    let t = TestBox::new("counterpart-gui");
+    let reference = "Kundennummer 4711.0815 vom 03.11.2026";
+    let fronts = t.dir.join("fronts.pdf");
+    let backs = t.dir.join("backs.pdf");
+    let other = t.dir.join("other.pdf");
+    pdf(
+        &fronts,
+        &[
+            &format!("Seite 1 von 3\nStromrechnung\n{reference}"),
+            &format!("Seite 3 von 3\nZahlungen\n{reference}"),
+        ],
+    );
+    pdf(&backs, &[&format!("Seite 2 von 3\nVerbrauch\n{reference}")]);
+    pdf(&other, &["Seite 2 von 3\nEin anderer Brief 1234.5678"]);
+
+    let diagnosis = complete::diagnose(&t.config, &t.ws, &fronts).unwrap();
+    assert!(diagnosis.report.is_incomplete());
+    let dir = complete::search_dir(&fronts, None);
+    let candidates =
+        complete::search_counterparts(&t.config, &fronts, &diagnosis.scan, &diagnosis.report, &dir)
+            .unwrap()
+            .candidates;
+    assert_eq!(candidates.len(), 1, "other.pdf shares no references");
+    assert_eq!(candidates[0].path, backs);
+    assert_eq!(candidates[0].fills, [2]);
+    assert!(candidates[0].still.is_empty());
+
+    let (merged, out) = complete::merge_with(&fronts, &diagnosis.scan, &candidates[0]).unwrap();
+    assert_eq!(page_texts(merged.path()).len(), 3);
+    assert_eq!(out.file_name().unwrap(), "fronts_complete.pdf");
 }
