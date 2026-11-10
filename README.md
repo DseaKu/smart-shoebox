@@ -9,6 +9,26 @@
 > paperwork problem is real, but the main goal is learning, so expect rough
 > edges and changing designs.
 
+> **🚧 Under development.** Smart Shoebox is not finished. The core commands
+> work, but the interfaces, the index format and the prompts can still change,
+> and some parts are only partly tested. I work on it in my spare time, next to
+> my bachelor thesis, so progress comes in steps rather than on a schedule.
+
+### Status
+
+| Area                                      | State                                  |
+| ----------------------------------------- | -------------------------------------- |
+| `init`, `add`, `find`, `name`             | working, tested with my own documents  |
+| `merge`, `sort`                           | working, page sorting still being tuned |
+| `check`, `counterpart`                    | working, matching rules still being tuned |
+| `wizard`                                  | new, least tested                      |
+| `shoebox-gui` (macOS window)              | working, rough edges                   |
+| `verify`, `add --move`                    | planned, not built                     |
+
+See [ROADMAP.md](ROADMAP.md) for what comes next. Until it is marked stable,
+keep a backup of your box before running batch commands like `wizard` or
+`name -y`.
+
 ### Who does what
 
 This project is built together with an AI coding assistant (Claude Code).
