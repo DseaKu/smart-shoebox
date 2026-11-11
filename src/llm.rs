@@ -114,7 +114,7 @@ pub fn parse_json<T: DeserializeOwned>(answer: &str) -> Result<T, String> {
 
 /// Suggests starting Ollama only when it really cannot be reached; other errors
 /// (e.g. the model aborting its answer) are shown as they are.
-fn describe_error(e: &OllamaError) -> String {
+pub(crate) fn describe_error(e: &OllamaError) -> String {
     match e {
         OllamaError::ReqwestError(r) if r.is_connect() || r.is_timeout() => {
             format!("cannot reach Ollama ({r}). Is `ollama serve` running?")

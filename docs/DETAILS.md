@@ -116,6 +116,9 @@ that folder. `merge` needs no box.
   is added (with OCR where needed) and is the source for searching inside
   documents later (ROADMAP step 7). It is as private as the PDF itself.
   `shoebox text` fills it in for documents added before it was kept.
+- **Vectors:** `store/vectors.json` and `store/vectors.f32` hold one vector per
+  chunk of page text, for `search`. They can always be made again from the
+  page text (`shoebox embed`), so they need no backup.
 - **Deduplication:** Adding the same file twice is a no-op, because it produces
   the same hash.
 - **Index:** `index.tsv` is a tab-separated text file, easy to read, grep and
@@ -154,6 +157,8 @@ a3f9…   2026-03-14  bescheid.pdf      steuer,finanzamt  Steuerbescheid 2025, N
 | `wizard <pdf or folder>…` | Handle a whole pile without questions: check every PDF, complete incomplete scans with their counterpart from the same pile (merge and sort), give unreadable names a readable one, and add each document to the box. Whatever it cannot decide safely is listed for me with the reason. At the end it offers to move the merged originals to the Trash; nothing else is deleted. |
 | `text [--all]` | Save the page text (`store/<hash>.pages.json`) of every document in the index that has none yet, e.g. those added before it was kept. With `--all`, read every document again. Continues after a broken or missing file and reports it at the end. No AI. |
 | `chunks [--show <doc>]` | One line per document: pages, chunks, split parts and the longest chunk. With `--show` (a hash prefix or part of the original file name), print the chunks of that document. For checking the cutting by eye (ROADMAP step 7.2). No AI. |
+| `embed` | Embed every chunk that is new or changed with `embed_model` (default `bge-m3`, pull it first: `ollama pull bge-m3`) and save the vectors in `store/vectors.json` and `store/vectors.f32`. A different model means embedding everything again. |
+| `search "<question>" [--top N]` | Update the vectors, embed the question and show the N chunks closest in meaning (default 5), with score, document, page and the start of the text. Shows what the search finds; it gives no answer (ROADMAP step 7.5). |
 | `verify` (planned) | Rehash every file in `store/` and compare with the index. Reports missing, unknown or corrupted files.                                                                                            |
 
 `shoebox --help` lists all commands, and `shoebox <command> --help` (e.g.

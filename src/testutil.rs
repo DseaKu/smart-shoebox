@@ -43,6 +43,50 @@ impl Model for FakeModel {
     }
 }
 
+/// An embedder without Ollama: each word adds 1 to one of 64 dimensions (chosen
+/// by a hash of the word), so texts sharing words are close. Counts the texts.
+pub struct FakeEmbedder {
+    model: String,
+    embedded: RefCell<usize>,
+}
+
+impl FakeEmbedder {
+    pub fn new(model: &str) -> Self {
+        Self {
+            model: model.to_string(),
+            embedded: RefCell::new(0),
+        }
+    }
+
+    /// How many texts were embedded so far.
+    pub fn embedded(&self) -> usize {
+        *self.embedded.borrow()
+    }
+}
+
+impl crate::vectors::Embedder for FakeEmbedder {
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    async fn embed(&self, texts: &[String]) -> Res<Vec<Vec<f32>>> {
+        *self.embedded.borrow_mut() += texts.len();
+        Ok(texts
+            .iter()
+            .map(|text| {
+                let mut v = vec![0.0; 64];
+                for word in text.to_lowercase().split_whitespace() {
+                    let h = word
+                        .bytes()
+                        .fold(7usize, |h, b| h.wrapping_mul(31) + b as usize);
+                    v[h % 64] += 1.0;
+                }
+                v
+            })
+            .collect())
+    }
+}
+
 fn role_name(role: &str) -> &'static str {
     [
         (roles::EXTRACTOR, "extractor"),
@@ -121,6 +165,7 @@ impl TestBox {
             context_size: 16384,
             ocr_language: "deu".to_string(),
             review: false,
+            embed_model: "fake-embed".to_string(),
         };
         Self { dir, ws, config }
     }

@@ -1,7 +1,11 @@
 use clap::{Parser, Subcommand};
 use smart_shoebox::{
-    Res, add, chunk, complete, config, find, llm::Llm, merge, pagetext, prompt, rename, sort,
-    wizard, workspace, workspace::Workspace,
+    Res, add, chunk, complete, config, find,
+    llm::Llm,
+    merge, pagetext, prompt, rename, sort,
+    vectors::{self, OllamaEmbedder},
+    wizard, workspace,
+    workspace::Workspace,
 };
 use std::path::PathBuf;
 use std::process::exit;
@@ -103,6 +107,17 @@ enum Command {
         #[arg(long, value_name = "DOCUMENT")]
         show: Option<String>,
     },
+    /// Embed the chunks of all documents (only new or changed ones) for searching by meaning
+    Embed,
+    /// Search inside the documents by meaning: show the best matching pages (no answer yet)
+    Search {
+        /// The question, e.g. "Wie hoch ist die Kaution?" (quotes are optional)
+        #[arg(required = true, num_args = 1..)]
+        question: Vec<String>,
+        /// How many chunks to show
+        #[arg(long, default_value_t = 5)]
+        top: usize,
+    },
     /// Handle a pile of PDFs without questions: check, complete, name and add each one
     Wizard {
         /// PDFs and/or folders of PDFs
@@ -176,6 +191,14 @@ async fn run(command: Command) -> Res<()> {
         Command::Chunks { show } => {
             let ws = Workspace::locate()?;
             chunk::run(&ws, show.as_deref())
+        }
+        Command::Embed => {
+            let (ws, config, _llm) = open_box()?;
+            vectors::run(&ws, &OllamaEmbedder::new(&config)).await
+        }
+        Command::Search { question, top } => {
+            let (ws, config, _llm) = open_box()?;
+            vectors::search(&ws, &OllamaEmbedder::new(&config), &question.join(" "), top).await
         }
         Command::Text { all } => {
             let (ws, config, _llm) = open_box()?;

@@ -14,3 +14,8 @@ ocr_language: deu
 # document text. About 3x slower; with small models (qwen3:8b) it made the tags
 # worse in tests, so it is off by default. Worth trying with a bigger model.
 review: false
+
+# Embedding model for searching inside documents (`shoebox search`): turns each
+# chunk of page text into a vector. Must be pulled first: ollama pull bge-m3
+# Changing it means embedding every chunk again (done automatically).
+embed_model: bge-m3

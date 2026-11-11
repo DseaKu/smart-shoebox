@@ -14,6 +14,15 @@ pub struct Config {
     /// `add`: let a second AI call check the first proposal against the text.
     #[serde(default = "default_review")]
     pub review: bool,
+    /// Ollama model that turns chunks of page text into vectors, for searching
+    /// inside documents. A different model means embedding everything again.
+    #[serde(default = "default_embed_model")]
+    pub embed_model: String,
+}
+
+/// Multilingual (German text), no special prefix for questions needed.
+fn default_embed_model() -> String {
+    "bge-m3".to_string()
 }
 
 /// Off by default: with small models the reviewer made tags worse, and tripled

@@ -30,6 +30,7 @@ pub mod search;
 pub mod sort;
 pub mod store;
 pub mod trash;
+pub mod vectors;
 pub mod wizard;
 pub mod workspace;
 

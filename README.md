@@ -58,6 +58,8 @@ Requires `ocrmypdf` and [Ollama](https://ollama.com) with a local model.
 | `wizard <pdf or folder>…` | Handle a whole pile: check, complete, name and add, with a list of what needs a decision. |
 | `text [--all]` | Save the page text of documents added before it was kept (for searching inside documents, planned). |
 | `chunks [--show <doc>]` | Show how the documents are cut into chunks for searching inside them. No AI. |
+| `embed` | Turn the chunks into vectors with the embedding model (only new or changed ones). |
+| `search "<question>"` | Search inside the documents by meaning: the best matching pages, with scores. No answer yet. |
 | `verify` | Planned: rehash the store and compare with the index. |
 
 `shoebox --help` and `shoebox <command> --help` list all options. `-y` answers

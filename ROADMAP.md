@@ -121,13 +121,29 @@ Order: 7.1 and 7.6 first, so the effect of 7.2–7.5 can be measured.
       front of each chunk before embedding, so a page like "Warmwasser
       164,80 EUR" also carries its year (decide with the numbers from 7.6).
 
-### 7.3 Embeddings with Ollama
-- [ ] Embed the chunks via `/api/embed` (`ollama-rs`), with a multilingual
-      model for German text, e.g. `bge-m3` or `embeddinggemma`; set in `shoebox.yaml`.
-- [ ] Store the vectors in one plain file (e.g. `store/vectors.bin`) with the
-      model name; a different model means a rebuild.
-- [ ] No vector database: brute-force cosine search is fast enough for
-      tens of thousands of chunks.
+### 7.3 Embeddings with Ollama — done
+- [x] Embed the chunks via `/api/embed` (`ollama-rs`), with `bge-m3`
+      (multilingual, 1024 dimensions, no prefix for questions); set as
+      `embed_model` in `shoebox.yaml` (`vectors.rs`).
+- [x] Stored as two plain files: `store/vectors.json` (model, dimensions,
+      chunk ids, text fingerprints) and `store/vectors.f32` (the normalized
+      vectors). Only new or changed chunks are embedded; a different model or
+      files that do not match mean a rebuild.
+- [x] No vector database: brute-force cosine search.
+- [x] `shoebox embed` brings the vectors up to date; `shoebox search
+      "<question>" [--top N]` shows the best chunks with document, page and
+      score (and updates the vectors first). No answer yet: that is 7.5.
+- [x] Tests with a fake embedder (`testutil::FakeEmbedder`): only changes are
+      embedded, the order follows the chunks, another model or a damaged file
+      means a rebuild, ranking by cosine.
+- [x] Measured (`eval_rag.py --mode search`, 25 questions, 2026-11-11):
+      correct page at rank 1: **20 of 25**, in the top 3: 23, in the top 5: **25**.
+      Correct document at rank 1: 21 of 25 (`find`: 15 of the same 25).
+      All 3 `number` questions at rank 1. Weak spots: the `year` questions
+      (1 of 3 at rank 1: the 2024 statement ranks above the 2025 one, since
+      page 3 does not show the year) and questions where similar words win
+      ("Bruttoarbeitslohn" → the employment contract's "Bruttogehalt").
+      Embedding the 24 chunks took about 2.5 s.
 
 ### 7.4 Hybrid retrieval
 - [ ] Keyword score (BM25) for exact numbers (Steuernummer, IBAN, contract
@@ -155,7 +171,8 @@ Order: 7.1 and 7.6 first, so the effect of 7.2–7.5 can be measured.
       All 10 misses are facts that are not in the one-line summary
       (Katze, Steuernummer, Zählernummer, Urlaubstage, …): `find` then returns
       nothing. This is the gap that searching the page text must close.
-- [ ] With 7.4: measure retrieval per page (correct page in the top k?).
+- [x] Measure retrieval per page: `eval_rag.py --mode search` (recall@1/3/5,
+      see 7.3 for the first numbers).
 - [ ] With 7.5: measure answers (correct? correct source?) separately from
       retrieval, to see which part fails.
 
