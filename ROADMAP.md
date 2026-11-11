@@ -88,6 +88,52 @@ and there is no per-command help.
       and remove `commands.rs` (and `pipeline.rs`: each command now has its AI
       call next to its flow). Also formatted everything with `cargo fmt`.
 
+## 7. Answers from the document text: RAG (planned, 2026-11-11)
+
+**Goal:** today `find` searches the index rows (date, tags, one-line summary)
+and returns PDFs. A new command `ask` searches the text *inside* the documents
+and answers with sources:
+`shoebox ask "Wie hoch war meine Steuererstattung 2025?"` →
+"875,00 EUR (steuerbescheid_2025.pdf, page 1)". Everything stays local.
+
+Order: 7.1 and 7.6 first, so the effect of 7.2–7.5 can be measured.
+
+### 7.1 Keep the page text
+- [ ] `add` saves the extracted (or OCR) text per page next to the PDF,
+      e.g. `store/<hash>.pages.json`. It stays private (`store/` is ignored).
+- [ ] A backfill command for documents already in the box.
+
+### 7.2 Chunks
+- [ ] One chunk per page; long pages split at about 400 tokens.
+      Each chunk keeps its hash and page number (needed for the sources).
+
+### 7.3 Embeddings with Ollama
+- [ ] Embed the chunks via `/api/embed` (`ollama-rs`), with a multilingual
+      model for German text, e.g. `bge-m3` or `embeddinggemma`; set in `shoebox.yaml`.
+- [ ] Store the vectors in one plain file (e.g. `store/vectors.bin`) with the
+      model name; a different model means a rebuild.
+- [ ] No vector database: brute-force cosine search is fast enough for
+      tens of thousands of chunks.
+
+### 7.4 Hybrid retrieval
+- [ ] Keyword score (BM25) for exact numbers (Steuernummer, IBAN, contract
+      numbers), where vectors are weak; extend the word matching in `search.rs`.
+- [ ] Merge the keyword and vector rankings (reciprocal rank fusion).
+- [ ] Use the index rows (year, tags) as a filter.
+
+### 7.5 `ask` command
+- [ ] Send the top 6–8 chunks with labels like `[3:p2]`; they fit in `context_size: 16384`.
+- [ ] Strict JSON answer, like `sort`: `{answer, sources: [{chunk, quote}]}`.
+- [ ] Plain code checks that each quote really occurs in its chunk. No quote
+      found → "not found in your documents", no guess.
+- [ ] Tests with the fake model (`testutil::FakeModel`), like the other flows.
+
+### 7.6 Measure with the test data
+- [ ] `testdata/fake/questions.tsv`: questions with known answers and source
+      pages, e.g. "Wie hoch ist die Kaution?" → 2.340,00 EUR, `mietvertrag.pdf` p2.
+- [ ] Measure retrieval (correct page in the top k?) and answers (correct?)
+      separately, to see which part fails.
+
 ## Not planned for now
 
 - `verify` and `split` commands
