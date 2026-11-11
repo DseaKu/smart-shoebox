@@ -1,0 +1,28 @@
+id	kind	question	answer	file	pages
+q01	fact	Wie hoch ist die Kaution für meine Wohnung?	2.340,00 EUR	mietvertrag.pdf	2
+q02	fact	Wie hoch ist meine monatliche Grundmiete?	780,00 EUR	mietvertrag.pdf	2
+q03	synonym	Wie viel zahle ich für die Wohnung insgesamt pro Monat?	1.030,00 EUR	mietvertrag.pdf	2
+q04	fact	Seit wann läuft mein Mietvertrag?	01.04.2024	mietvertrag.pdf	1
+q05	synonym	Darf ich in meiner Wohnung eine Katze halten?	Zustimmung	mietvertrag.pdf	3
+q06	fact	Wie viele Haustürschlüssel habe ich bekommen?	3 Haustürschlüssel	mietvertrag.pdf	4
+q07	summary	Wie hoch war meine Steuererstattung für 2025?	875,00 EUR	steuerbescheid_2025.pdf	1
+q08	number	Wie lautet meine Steuernummer?	012/345/67890	steuerbescheid_2025.pdf	1,2,3
+q09	synonym	Kann ich mein Arbeitszimmer von der Steuer absetzen?	nicht abziehbar	steuerbescheid_2025.pdf	2
+q10	fact	Wie lange habe ich Zeit für einen Einspruch gegen den Steuerbescheid?	einen Monat	steuerbescheid_2025.pdf	3
+q11	fact	Wie hoch war mein Bruttoarbeitslohn 2025?	48.600,00 EUR	steuerbescheid_2025.pdf	2
+q12	fact	Wie viel Strom habe ich 2025 verbraucht?	2.311 kWh	stromrechnung_2025.pdf	1
+q13	synonym	Wie viel buchen die Stadtwerke ab Februar 2026 jeden Monat ab?	79,00 EUR	stromrechnung_2025.pdf	2
+q14	number	Welche Nummer hat mein Stromzähler?	1EMH0012345678	stromrechnung_2025.pdf	1
+q15	fact	Wie hoch ist die Selbstbeteiligung bei meiner Teilkasko?	150 EUR	kfz_versicherungsschein.pdf	1
+q16	number	Welche Versicherungsnummer hat meine Autoversicherung?	KV-55.123.987	kfz_versicherungsschein.pdf	1,2
+q17	synonym	Was kostet mein Auto an Versicherung im Jahr?	411,00 EUR	kfz_versicherungsschein.pdf	1
+q18	fact	Wie hoch war mein Kontostand Ende November 2025?	3.570,50 EUR	kontoauszug_2025-11.pdf	2
+q19	fact	Wie viel Gehalt habe ich im November 2025 bekommen?	2.611,54 EUR	kontoauszug_2025-11.pdf	1
+q20	year	Wie hoch ist die Nachzahlung aus der Betriebskostenabrechnung 2025?	127,45 EUR	complete/betriebskosten_2025.pdf	1
+q21	year	Hatte ich bei den Betriebskosten 2024 ein Guthaben oder eine Nachzahlung?	Guthaben 52,10 EUR	complete/betriebskosten_2024.pdf	1
+q22	year	Wie hoch waren meine Warmwasserkosten 2025?	164,80 EUR	complete/betriebskosten_2025.pdf	3
+q23	fact	Wie viele Urlaubstage habe ich laut Arbeitsvertrag?	30 Arbeitstage	complete/arbeitsvertrag.pdf	2
+q24	synonym	Was verdiene ich brutto im Monat?	4.050,00 EUR	complete/arbeitsvertrag.pdf	2
+q25	fact	Wann hat mein Arbeitsverhältnis begonnen?	01.03.2025	complete/arbeitsvertrag.pdf	1
+q26	none	Wie hoch ist der Beitrag meiner Hausratversicherung?			
+q27	none	Wann muss mein Auto zur Hauptuntersuchung?			

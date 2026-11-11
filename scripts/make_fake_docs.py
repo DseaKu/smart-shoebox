@@ -7,7 +7,10 @@ invalid check digits "00", so no IBAN can belong to a real account.
 Usage:
     python3 scripts/make_fake_docs.py [OUT_DIR]     (default: testdata/fake)
 
-Writes the PDFs (ignored by git) and expected.tsv (the correct answers).
+Writes the PDFs (ignored by git), expected.tsv (the correct check and counterpart
+results) and questions.tsv (questions with known answers, for scripts/eval_rag.py).
+The full versions of the split scans go to complete/, so they do not change the
+counterpart results of the pile.
 Plain Python, no extra packages. The PDFs have a text layer, so no OCR is needed.
 """
 
@@ -435,7 +438,94 @@ def build():
     add("scan_0005.pdf", [blank(), av[1]], "Arbeitsvertrag", "2025-01-15",
         "incomplete: 1, 3 missing", "scan_0004.pdf", "back pass; first page is blank")
 
+    # The full documents behind the scans, for the questions (as the box holds them
+    # after `wizard` completed the scans). In a subfolder, outside the scan pile.
+    add("complete/betriebskosten_2025.pdf", nk, "Betriebskostenabrechnung", "2026-03-18",
+        "complete", note="full version of scan_0001 + scan_0002")
+    add("complete/betriebskosten_2024.pdf", old, "Betriebskostenabrechnung", "2025-03-21",
+        "complete", note="full version of scan_0003; year trap for the questions")
+    add("complete/arbeitsvertrag.pdf", av, "Arbeitsvertrag", "2025-01-15",
+        "complete", note="full version of scan_0004 + scan_0005")
+
     return docs, expected
+
+
+# ---------------------------------------------------------------- questions
+
+# The documents the evaluation puts into its box (all complete, no split scans).
+EVAL_DOCS = [
+    "mietvertrag.pdf",
+    "steuerbescheid_2025.pdf",
+    "stromrechnung_2025.pdf",
+    "kfz_versicherungsschein.pdf",
+    "kontoauszug_2025-11.pdf",
+    "complete/betriebskosten_2025.pdf",
+    "complete/betriebskosten_2024.pdf",
+    "complete/arbeitsvertrag.pdf",
+]
+
+# (kind, question, answer, file, pages). `answer` must occur on one of `pages`
+# (1-based); alternatives are separated by " | ". Kinds:
+#   fact     the answer is written on the page with the same words
+#   synonym  the question uses other words than the page
+#   number   an exact reference number (weak spot of embeddings)
+#   year     a similar document of another year must not be used
+#   summary  the index summary from `add` may be wrong or missing it
+#   none     no document answers it: the right answer is "not found"
+QUESTIONS = [
+    ("fact", "Wie hoch ist die Kaution für meine Wohnung?", "2.340,00 EUR", "mietvertrag.pdf", [2]),
+    ("fact", "Wie hoch ist meine monatliche Grundmiete?", "780,00 EUR", "mietvertrag.pdf", [2]),
+    ("synonym", "Wie viel zahle ich für die Wohnung insgesamt pro Monat?", "1.030,00 EUR", "mietvertrag.pdf", [2]),
+    ("fact", "Seit wann läuft mein Mietvertrag?", "01.04.2024", "mietvertrag.pdf", [1]),
+    ("synonym", "Darf ich in meiner Wohnung eine Katze halten?", "Zustimmung", "mietvertrag.pdf", [3]),
+    ("fact", "Wie viele Haustürschlüssel habe ich bekommen?", "3 Haustürschlüssel", "mietvertrag.pdf", [4]),
+    ("summary", "Wie hoch war meine Steuererstattung für 2025?", "875,00 EUR", "steuerbescheid_2025.pdf", [1]),
+    ("number", "Wie lautet meine Steuernummer?", "012/345/67890", "steuerbescheid_2025.pdf", [1, 2, 3]),
+    ("synonym", "Kann ich mein Arbeitszimmer von der Steuer absetzen?", "nicht abziehbar", "steuerbescheid_2025.pdf", [2]),
+    ("fact", "Wie lange habe ich Zeit für einen Einspruch gegen den Steuerbescheid?", "einen Monat", "steuerbescheid_2025.pdf", [3]),
+    ("fact", "Wie hoch war mein Bruttoarbeitslohn 2025?", "48.600,00 EUR", "steuerbescheid_2025.pdf", [2]),
+    ("fact", "Wie viel Strom habe ich 2025 verbraucht?", "2.311 kWh", "stromrechnung_2025.pdf", [1]),
+    ("synonym", "Wie viel buchen die Stadtwerke ab Februar 2026 jeden Monat ab?", "79,00 EUR", "stromrechnung_2025.pdf", [2]),
+    ("number", "Welche Nummer hat mein Stromzähler?", "1EMH0012345678", "stromrechnung_2025.pdf", [1]),
+    ("fact", "Wie hoch ist die Selbstbeteiligung bei meiner Teilkasko?", "150 EUR", "kfz_versicherungsschein.pdf", [1]),
+    ("number", "Welche Versicherungsnummer hat meine Autoversicherung?", "KV-55.123.987", "kfz_versicherungsschein.pdf", [1, 2]),
+    ("synonym", "Was kostet mein Auto an Versicherung im Jahr?", "411,00 EUR", "kfz_versicherungsschein.pdf", [1]),
+    ("fact", "Wie hoch war mein Kontostand Ende November 2025?", "3.570,50 EUR", "kontoauszug_2025-11.pdf", [2]),
+    ("fact", "Wie viel Gehalt habe ich im November 2025 bekommen?", "2.611,54 EUR", "kontoauszug_2025-11.pdf", [1]),
+    ("year", "Wie hoch ist die Nachzahlung aus der Betriebskostenabrechnung 2025?", "127,45 EUR", "complete/betriebskosten_2025.pdf", [1]),
+    ("year", "Hatte ich bei den Betriebskosten 2024 ein Guthaben oder eine Nachzahlung?", "Guthaben 52,10 EUR", "complete/betriebskosten_2024.pdf", [1]),
+    ("year", "Wie hoch waren meine Warmwasserkosten 2025?", "164,80 EUR", "complete/betriebskosten_2025.pdf", [3]),
+    ("fact", "Wie viele Urlaubstage habe ich laut Arbeitsvertrag?", "30 Arbeitstage", "complete/arbeitsvertrag.pdf", [2]),
+    ("synonym", "Was verdiene ich brutto im Monat?", "4.050,00 EUR", "complete/arbeitsvertrag.pdf", [2]),
+    ("fact", "Wann hat mein Arbeitsverhältnis begonnen?", "01.03.2025", "complete/arbeitsvertrag.pdf", [1]),
+    ("none", "Wie hoch ist der Beitrag meiner Hausratversicherung?", "", "", []),
+    ("none", "Wann muss mein Auto zur Hauptuntersuchung?", "", "", []),
+]
+
+
+def page_text(page):
+    lines, footer = page
+    return " ".join([text for text, _, _ in lines] + ([footer] if footer else []))
+
+
+def norm(text):
+    return " ".join(text.lower().split())
+
+
+def check_questions(docs):
+    """Each answer must really be on the given page: the questions cannot drift
+    away from the documents when the generator changes."""
+    for kind, question, answer, file, pages in QUESTIONS:
+        if kind == "none":
+            assert not file and not answer, question
+            continue
+        assert file in EVAL_DOCS, (question, file)
+        texts = [norm(page_text(docs[file][n - 1])) for n in pages]
+        for alternative in answer.split(" | "):
+            if any(norm(alternative) in text for text in texts):
+                break
+        else:
+            raise AssertionError(f"answer {answer!r} not on page {pages} of {file}: {question}")
 
 
 def main():
@@ -443,12 +533,21 @@ def main():
     out = Path(sys.argv[1]) if len(sys.argv) > 1 else root / "testdata" / "fake"
     out.mkdir(parents=True, exist_ok=True)
     docs, expected = build()
+    check_questions(docs)
     for name, pages in docs.items():
+        (out / name).parent.mkdir(parents=True, exist_ok=True)
         write_pdf(out / name, pages)
     header = ("file", "kind", "date", "pages", "check", "counterpart", "note")
     rows = ["\t".join(header)] + ["\t".join(str(x) for x in row) for row in expected]
     (out / "expected.tsv").write_text("\n".join(rows) + "\n", encoding="utf-8")
-    print(f"wrote {len(docs)} PDFs and expected.tsv to {out}")
+    header = ("id", "kind", "question", "answer", "file", "pages")
+    rows = ["\t".join(header)] + [
+        "\t".join([f"q{i:02}", kind, question, answer, file, ",".join(map(str, pages))])
+        for i, (kind, question, answer, file, pages) in enumerate(QUESTIONS, 1)
+    ]
+    (out / "questions.tsv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    (out / "eval_docs.txt").write_text("\n".join(EVAL_DOCS) + "\n", encoding="utf-8")
+    print(f"wrote {len(docs)} PDFs, expected.tsv, questions.tsv and eval_docs.txt to {out}")
 
 
 if __name__ == "__main__":

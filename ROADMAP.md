@@ -132,11 +132,22 @@ Order: 7.1 and 7.6 first, so the effect of 7.2–7.5 can be measured.
       found → "not found in your documents", no guess.
 - [ ] Tests with the fake model (`testutil::FakeModel`), like the other flows.
 
-### 7.6 Measure with the test data
-- [ ] `testdata/fake/questions.tsv`: questions with known answers and source
+### 7.6 Measure with the test data — started
+- [x] `testdata/fake/questions.tsv`: 27 questions with known answers and source
       pages, e.g. "Wie hoch ist die Kaution?" → 2.340,00 EUR, `mietvertrag.pdf` p2.
-- [ ] Measure retrieval (correct page in the top k?) and answers (correct?)
-      separately, to see which part fails.
+      Made by `scripts/make_fake_docs.py`, which checks that each answer is on
+      its page. Kinds: fact, synonym, number, year, summary, none.
+- [x] `scripts/eval_rag.py`: fills `target/eval-box/`, checks that each answer
+      is in the saved page text, asks every question, scores it per kind.
+- [x] Baseline with today's `find` (index rows only, `qwen3:8b`, 2026-11-11):
+      **17 of 27** correct documents. fact 7/12, synonym 4/6, number 1/3,
+      year 2/3, summary 1/1, none 2/2; 4 extra documents returned.
+      All 10 misses are facts that are not in the one-line summary
+      (Katze, Steuernummer, Zählernummer, Urlaubstage, …): `find` then returns
+      nothing. This is the gap that searching the page text must close.
+- [ ] With 7.4: measure retrieval per page (correct page in the top k?).
+- [ ] With 7.5: measure answers (correct? correct source?) separately from
+      retrieval, to see which part fails.
 
 ## Not planned for now
 
