@@ -2,7 +2,7 @@
 //! They run without Ollama and without OCR (the test PDFs contain real text).
 
 use crate::testutil::{FakeModel, TestBox, pdf};
-use crate::{add, complete, find, index, pagetext, prompt, rename, sort, store, wizard};
+use crate::{add, chunk, complete, find, index, pagetext, prompt, rename, sort, store, wizard};
 use std::fs;
 
 const TAX_NOTICE: &str =
@@ -436,4 +436,36 @@ async fn text_fills_in_the_page_text_of_documents_added_before() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("1 documents could not be read"), "{err}");
+}
+
+#[tokio::test]
+async fn chunks_of_the_box_come_from_the_saved_page_text() {
+    let t = TestBox::new("chunks");
+    let file = t.dir.join("vertrag.pdf");
+    pdf(
+        &file,
+        &[
+            "Seite 1 von 2\nMietvertrag",
+            "Seite 2 von 2\nKaution 2340 EUR",
+        ],
+    );
+    let model = FakeModel::new(|_, _| entry_json("2024-02-12", &["wohnung"], "Mietvertrag"));
+    prompt::script(&["y"]);
+    add::run(&t.config, &t.ws, &model, &file).await.unwrap();
+    let hash = index::parse(&index::read(&t.ws.index_path()).unwrap())[0]
+        .hash
+        .clone();
+
+    let found = chunk::of_box(&t.ws).unwrap();
+    assert!(found.without_text.is_empty());
+    let pages: Vec<u32> = found.chunks.iter().map(|c| c.page).collect();
+    assert_eq!(pages, [1, 2]);
+    assert!(found.chunks[1].text.contains("Kaution 2340 EUR"));
+    assert!(found.chunks.iter().all(|c| c.hash == hash));
+
+    // A document without page text is reported, not skipped silently.
+    fs::remove_file(pagetext::path(&t.ws, &hash)).unwrap();
+    let found = chunk::of_box(&t.ws).unwrap();
+    assert!(found.chunks.is_empty());
+    assert_eq!(found.without_text, [hash]);
 }

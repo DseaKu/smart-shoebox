@@ -107,9 +107,18 @@ Order: 7.1 and 7.6 first, so the effect of 7.2–7.5 can be measured.
 - [x] Tests: save/load, one text per page, `add` and `wizard` save it, backfill
       (including a missing PDF).
 
-### 7.2 Chunks
-- [ ] One chunk per page; long pages split at about 400 tokens.
+### 7.2 Chunks — done
+- [x] One chunk per page; long pages split at about 400 tokens (1,200 characters)
+      at line breaks, with up to 200 characters of overlap (`chunk.rs`).
+      Runs of layout spaces are collapsed, blank pages give no chunk.
       Each chunk keeps its hash and page number (needed for the sources).
+- [x] Chunks are not stored: they are made from `store/<hash>.pages.json`
+      when needed (`chunk::of_box`, which also lists documents without page text).
+- [x] Checked on the test data: the fake documents give one chunk per page;
+      the public law texts and US forms are cut into parts of at most 1,200 characters.
+- [ ] Later, if retrieval needs it: put the document's date and summary in
+      front of each chunk before embedding, so a page like "Warmwasser
+      164,80 EUR" also carries its year (decide with the numbers from 7.6).
 
 ### 7.3 Embeddings with Ollama
 - [ ] Embed the chunks via `/api/embed` (`ollama-rs`), with a multilingual

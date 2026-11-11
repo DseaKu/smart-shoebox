@@ -11,7 +11,7 @@ use serde::Deserialize;
 use std::collections::HashSet;
 
 /// Rough size of German text with numbers; on the safe side.
-const CHARS_PER_TOKEN: usize = 3;
+pub const CHARS_PER_TOKEN: usize = 3;
 /// Room for the role, the question and the answer.
 const RESERVED_TOKENS: usize = 800;
 /// When rows share words with the question, only this many are sent: small
