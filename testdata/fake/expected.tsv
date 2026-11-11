@@ -1,0 +1,11 @@
+file	kind	date	pages	check	counterpart	note
+mietvertrag.pdf	Mietvertrag	2024-02-12	4	complete		
+steuerbescheid_2025.pdf	Einkommensteuerbescheid	2026-07-14	3	complete		
+stromrechnung_2025.pdf	Stromrechnung	2026-01-20	2	complete		
+kfz_versicherungsschein.pdf	Versicherungsschein	2025-12-02	2	complete		
+kontoauszug_2025-11.pdf	Kontoauszug	2025-11-30	2	complete		page numbers as 'Blatt N aus M'
+scan_0001.pdf	Betriebskostenabrechnung	2026-03-18	2	incomplete: 2, 4 missing	scan_0002.pdf	front pass of a duplex scan
+scan_0002.pdf	Betriebskostenabrechnung	2026-03-18	2	incomplete: 1, 3 missing	scan_0001.pdf	back pass, reverse order
+scan_0003.pdf	Betriebskostenabrechnung	2025-03-21	2	incomplete: 1, 3 missing		distractor: must NOT match scan_0001; its pages 1 and 3 are not in the pile
+scan_0004.pdf	Arbeitsvertrag	2025-01-15	2	incomplete: 2 missing	scan_0005.pdf	front pass
+scan_0005.pdf	Arbeitsvertrag	2025-01-15	2	incomplete: 1, 3 missing	scan_0004.pdf	back pass; first page is blank
