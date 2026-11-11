@@ -77,7 +77,7 @@ shoebox add fronts_merged_sorted.pdf
 ## Window
 
 `shoebox-gui` is a small macOS window with the same functions as the commands
-(wizard, files, find, add). It is built separately, so `cargo install` stays
+(wizard, files, find, ask, add). It is built separately, so `cargo install` stays
 free of GUI libraries:
 
 ```sh

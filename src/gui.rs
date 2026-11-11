@@ -5,6 +5,8 @@
 //! - Files: open PDFs (dialog or drop), select some, and run an action on them:
 //!   add to the box, name, merge, sort or check.
 //! - Find: browse all documents or search by question.
+//! - Ask: answer a question from the text inside the documents, with the
+//!   source pages and quotes (see `ask`).
 //! - Add: review the AI's proposal for each file before it goes into the box.
 //!
 //! The window only shows and asks; the work is done by the same functions the
@@ -15,6 +17,7 @@
 use crate::{
     Res,
     add::{self, Prepared, Proposal},
+    ask::{self, Outcome},
     complete::{self, Candidate, Diagnosis},
     config::Config,
     entry::Entry,
@@ -24,8 +27,10 @@ use crate::{
     merge, pages,
     pdf::TempFile,
     rename::{self, NameProposal},
+    retrieve::Searchable,
     sort::{self, SortPlan},
     store, trash,
+    vectors::OllamaEmbedder,
     wizard::{self, Status, Summary},
     workspace::Workspace,
 };
@@ -57,12 +62,14 @@ enum Tab {
     Wizard,
     Files,
     Find,
+    Ask,
     Add,
 }
 
 /// Results coming back from a background job.
 enum Msg {
     Found(Result<find::Found, String>),
+    Asked(Result<Asked, String>),
     Prepared(PathBuf, Result<Prepared, String>),
     Named(Vec<(PathBuf, Result<NameProposal, String>)>),
     Sorted(PathBuf, Result<SortPlan, String>, SortExtra),
@@ -76,6 +83,16 @@ enum Msg {
     /// A progress line of the wizard; the job goes on.
     WizardLog(String),
     Wizard(Result<Summary, String>),
+}
+
+/// The result of a question in the Ask tab.
+struct Asked {
+    question: String,
+    outcome: Outcome,
+    /// The original file name of each source, in the order of the sources.
+    names: Vec<String>,
+    /// Documents without page text, which were not searched.
+    without_text: usize,
 }
 
 /// For sorting a scan merged with its counterpart: the temporary merged PDF
@@ -176,6 +193,9 @@ struct App {
     question: String,
     /// The last search: the question and its matches.
     results: Option<(String, Vec<Row>)>,
+    /// The question typed in the Ask tab, and the last answer.
+    ask_question: String,
+    asked: Option<Asked>,
     /// Files waiting for an add proposal.
     queue: VecDeque<PathBuf>,
     /// The add proposal I am looking at, and my edited version of it.
@@ -213,6 +233,8 @@ impl App {
             all: Vec::new(),
             question: String::new(),
             results: None,
+            ask_question: String::new(),
+            asked: None,
             queue: VecDeque::new(),
             current: None,
             busy: None,
@@ -437,6 +459,46 @@ impl App {
         });
     }
 
+    fn start_ask(&mut self, ctx: &egui::Context) {
+        let question = self.ask_question.trim().to_string();
+        if question.is_empty() || self.busy.is_some() {
+            return;
+        }
+        let what = "Searching the documents and asking the model (embedding new pages first)…";
+        self.spawn(ctx, what, move |ws, config, llm| async move {
+            let result = async {
+                let searchable = Searchable::load(&ws)?;
+                if searchable.chunks.is_empty() {
+                    return Err(
+                        "No page text to search yet (add documents, or run `shoebox text`).".into(),
+                    );
+                }
+                let embedder = OllamaEmbedder::new(&config);
+                let outcome = ask::answer(&ws, &llm, &embedder, &searchable, &question).await?;
+                let names = match &outcome {
+                    Outcome::Answered { sources, .. } => sources
+                        .iter()
+                        .map(|s| {
+                            searchable
+                                .row(&s.chunk.hash)
+                                .map_or("?".to_string(), |r| r.original_name.clone())
+                        })
+                        .collect(),
+                    Outcome::NotFound { .. } => Vec::new(),
+                };
+                crate::Res::Ok(Asked {
+                    question,
+                    outcome,
+                    names,
+                    without_text: searchable.without_text.len(),
+                })
+            }
+            .await
+            .map_err(|e| e.to_string());
+            Msg::Asked(result)
+        });
+    }
+
     /// Starts the next file waiting to be added, if nothing else is going on.
     fn next_proposal(&mut self, ctx: &egui::Context) {
         if self.busy.is_some() || self.current.is_some() {
@@ -630,6 +692,16 @@ impl App {
                     self.results = Some((self.question.trim().to_string(), found.rows));
                 }
                 Msg::Found(Err(e)) => self.error(e),
+                Msg::Asked(Ok(asked)) => {
+                    match asked.without_text {
+                        0 => self.status = None,
+                        n => self.info(format!(
+                            "{n} documents have no page text yet and were not searched: run `shoebox text`."
+                        )),
+                    }
+                    self.asked = Some(asked);
+                }
+                Msg::Asked(Err(e)) => self.error(e),
                 Msg::WizardLog(_) => {}
                 Msg::Wizard(Ok(summary)) => {
                     let added = summary.count(|s| matches!(s, Status::Added { .. }));
@@ -1527,6 +1599,77 @@ impl App {
         }
     }
 
+    fn ask_tab(&mut self, ui: &mut egui::Ui) {
+        let idle = self.busy.is_none();
+        let mut ask = false;
+        ui.horizontal(|ui| {
+            let field = ui.add_enabled(
+                idle,
+                egui::TextEdit::singleline(&mut self.ask_question)
+                    .hint_text("Ask about the content, e.g. Wie hoch ist die Kaltmiete?")
+                    .desired_width(ui.available_width() - 80.0),
+            );
+            if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                ask = true;
+            }
+            if ui.add_enabled(idle, egui::Button::new("Ask")).clicked() {
+                ask = true;
+            }
+        });
+        if ask {
+            self.start_ask(ui.ctx());
+        }
+        ui.separator();
+
+        let Some(asked) = &self.asked else {
+            ui.weak(
+                "Answers come from the text inside the documents. Every answer shows \
+                 its source pages with a quote that is checked; if the check fails, \
+                 the answer is “Not found”.",
+            );
+            return;
+        };
+        ui.weak(format!("“{}”", asked.question));
+        ui.add_space(4.0);
+        let mut problem = None;
+        egui::ScrollArea::vertical().show(ui, |ui| match &asked.outcome {
+            Outcome::Answered { answer, sources } => {
+                ui.label(egui::RichText::new(answer).strong().size(16.0));
+                ui.add_space(8.0);
+                ui.strong("Sources");
+                for (source, name) in sources.iter().zip(&asked.names) {
+                    let path = store::path(&self.ws, &source.chunk.hash);
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label(format!("{name}, page {}", source.chunk.page));
+                            ui.weak(format!("“{}”", source.quote));
+                            ui.horizontal(|ui| {
+                                if ui.small_button("Open").clicked() {
+                                    problem = open(&path, false).err();
+                                }
+                                if ui.small_button("Show in Finder").clicked() {
+                                    problem = open(&path, true).err();
+                                }
+                            });
+                        });
+                    });
+                    ui.add_space(6.0);
+                }
+            }
+            Outcome::NotFound { why, claimed } => {
+                ui.label(egui::RichText::new("Not found in your documents.").strong());
+                ui.weak(format!("({why})"));
+                if let Some(claimed) = claimed {
+                    ui.add_space(6.0);
+                    ui.weak(format!("The model said, unchecked: {claimed}"));
+                }
+            }
+        });
+        if let Some(e) = problem {
+            self.error(e);
+        }
+    }
+
     fn add_tab(&mut self, ui: &mut egui::Ui) {
         if !self.queue.is_empty() {
             let names: Vec<String> = self.queue.iter().map(|f| file_name(f)).collect();
@@ -1624,6 +1767,7 @@ impl eframe::App for App {
                 ui.selectable_value(&mut self.tab, Tab::Wizard, "Wizard");
                 ui.selectable_value(&mut self.tab, Tab::Files, "Files");
                 ui.selectable_value(&mut self.tab, Tab::Find, "Find");
+                ui.selectable_value(&mut self.tab, Tab::Ask, "Ask");
                 let add_label = match self.queue.len() + self.current.is_some() as usize {
                     0 => "Add".to_string(),
                     n => format!("Add ({n})"),
@@ -1663,6 +1807,7 @@ impl eframe::App for App {
             Tab::Wizard => self.wizard_tab(ui),
             Tab::Files => self.files_tab(ui),
             Tab::Find => self.find_tab(ui),
+            Tab::Ask => self.ask_tab(ui),
             Tab::Add => self.add_tab(ui),
         });
     }

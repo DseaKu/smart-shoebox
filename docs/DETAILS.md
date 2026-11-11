@@ -316,6 +316,9 @@ scripts/bundle-macos.sh       # Smart Shoebox.app, to double-click or drag into 
   offers to move both originals to the Trash).
 - **Find**: browse all documents or search by question; open a document in Preview
   or show it in Finder.
+- **Ask**: answer a question from the text inside the documents, as with `shoebox ask`:
+  the answer, its source pages with the checked quote, and Open / Show in Finder per
+  source; otherwise "Not found" with the reason and the model's unchecked answer.
 - **Add**: review and edit the AI's proposal, then save.
 
 While a job runs, **Cancel** in the status bar (or Esc) stops it and drops the files
