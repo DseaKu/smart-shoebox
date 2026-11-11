@@ -24,6 +24,7 @@ pub mod pdf;
 pub mod pdfdoc;
 pub mod prompt;
 pub mod rename;
+pub mod retrieve;
 pub mod roles;
 pub mod scan;
 pub mod search;

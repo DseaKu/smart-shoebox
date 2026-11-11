@@ -117,9 +117,8 @@ Order: 7.1 and 7.6 first, so the effect of 7.2–7.5 can be measured.
 - [x] `shoebox chunks [--show <doc>]` shows the cutting, to check it by eye.
 - [x] Checked on the test data: the fake documents give one chunk per page;
       the public law texts and US forms are cut into parts of at most 1,200 characters.
-- [ ] Later, if retrieval needs it: put the document's date and summary in
-      front of each chunk before embedding, so a page like "Warmwasser
-      164,80 EUR" also carries its year (decide with the numbers from 7.6).
+- [x] ~~Put the document's date and summary in front of each chunk~~:
+      measured in 7.4, it made the search worse, so it is not done.
 
 ### 7.3 Embeddings with Ollama — done
 - [x] Embed the chunks via `/api/embed` (`ollama-rs`), with `bge-m3`
@@ -145,11 +144,35 @@ Order: 7.1 and 7.6 first, so the effect of 7.2–7.5 can be measured.
       ("Bruttoarbeitslohn" → the employment contract's "Bruttogehalt").
       Embedding the 24 chunks took about 2.5 s.
 
-### 7.4 Hybrid retrieval
-- [ ] Keyword score (BM25) for exact numbers (Steuernummer, IBAN, contract
-      numbers), where vectors are weak; extend the word matching in `search.rs`.
-- [ ] Merge the keyword and vector rankings (reciprocal rank fusion).
-- [ ] Use the index rows (year, tags) as a filter.
+### 7.4 Hybrid retrieval — done
+- [x] Keyword score (BM25) over the chunks (`retrieve.rs`). Words keep their
+      inner punctuation and also give their parts, so "BK-2025-0381" matches
+      "2025"; umlauts and stop words as in `search.rs`. A word also matches a
+      longer word that starts or ends with it (at least 5 letters and 60 % of
+      it, weight 0.7): "Mietvertrages", "Warmwasserkosten", "Steuererstattung".
+- [x] Merge the keyword and vector rankings by rank (reciprocal rank fusion, k = 60).
+- [x] `shoebox search --method vector|keyword|hybrid` (default hybrid);
+      `eval_rag.py --mode search --method …` compares them.
+- [x] Measured (25 questions, `bge-m3`, 2026-11-11), correct page at rank 1 / in top 3 / in top 5:
+
+      | Method | @1 | @3 | @5 |
+      | --- | --- | --- | --- |
+      | vector | 20 | 23 | 25 |
+      | keyword | 19 | 21 | 23 |
+      | **hybrid** | **23** | **24** | **25** |
+      | hybrid with document header | 21 | 23 | 24 |
+
+      Without the end-of-word match, hybrid lost "Steuererstattung" (the page
+      says "Erstattung") and was 22 / 23 / 24.
+- [x] Not done: a document header (date and summary) in front of each chunk.
+      It made the search worse: all pages of a document looked alike, and the
+      letter date carried the wrong year (the 2024 statement is dated 2025).
+- [x] Not done: the index rows (year, tags) as a filter. The index date is the
+      letter's date, not the year the document is about, so a year filter
+      would remove the right document (same 2024 statement).
+- Left: Q21 (2024 vs 2025 statement, both pages name both years), Q24
+  ("brutto" does not match "Bruttogehalt"; 4 letters of "brutto…" is too
+  little to match safely).
 
 ### 7.5 `ask` command
 - [ ] Send the top 6–8 chunks with labels like `[3:p2]`; they fit in `context_size: 16384`.

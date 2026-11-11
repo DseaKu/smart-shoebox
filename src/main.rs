@@ -2,8 +2,10 @@ use clap::{Parser, Subcommand};
 use smart_shoebox::{
     Res, add, chunk, complete, config, find,
     llm::Llm,
-    merge, pagetext, prompt, rename, sort,
-    vectors::{self, OllamaEmbedder},
+    merge, pagetext, prompt, rename,
+    retrieve::{self, Method},
+    sort,
+    vectors::OllamaEmbedder,
     wizard, workspace,
     workspace::Workspace,
 };
@@ -109,7 +111,7 @@ enum Command {
     },
     /// Embed the chunks of all documents (only new or changed ones) for searching by meaning
     Embed,
-    /// Search inside the documents by meaning: show the best matching pages (no answer yet)
+    /// Search inside the documents: show the best matching pages (no answer yet)
     Search {
         /// The question, e.g. "Wie hoch ist die Kaution?" (quotes are optional)
         #[arg(required = true, num_args = 1..)]
@@ -117,6 +119,9 @@ enum Command {
         /// How many chunks to show
         #[arg(long, default_value_t = 5)]
         top: usize,
+        /// How to rank the chunks
+        #[arg(long, value_enum, default_value_t = Method::Hybrid)]
+        method: Method,
     },
     /// Handle a pile of PDFs without questions: check, complete, name and add each one
     Wizard {
@@ -194,11 +199,16 @@ async fn run(command: Command) -> Res<()> {
         }
         Command::Embed => {
             let (ws, config, _llm) = open_box()?;
-            vectors::run(&ws, &OllamaEmbedder::new(&config)).await
+            retrieve::embed(&ws, &OllamaEmbedder::new(&config)).await
         }
-        Command::Search { question, top } => {
+        Command::Search {
+            question,
+            top,
+            method,
+        } => {
             let (ws, config, _llm) = open_box()?;
-            vectors::search(&ws, &OllamaEmbedder::new(&config), &question.join(" "), top).await
+            let embedder = OllamaEmbedder::new(&config);
+            retrieve::search(&ws, &embedder, &question.join(" "), method, top).await
         }
         Command::Text { all } => {
             let (ws, config, _llm) = open_box()?;

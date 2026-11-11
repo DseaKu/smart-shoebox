@@ -19,7 +19,7 @@ const RESERVED_TOKENS: usize = 800;
 const MAX_ROWS_WITH_HITS: usize = 60;
 
 /// Words that say nothing about which document is meant.
-const STOP_WORDS: &[&str] = &[
+pub(crate) const STOP_WORDS: &[&str] = &[
     "wo",
     "ist",
     "sind",
@@ -197,7 +197,7 @@ fn score(row: &Row, terms: &[String]) -> usize {
         .count()
 }
 
-fn normalize(text: &str) -> String {
+pub(crate) fn normalize(text: &str) -> String {
     text.to_lowercase()
         .replace('ä', "ae")
         .replace('ö', "oe")

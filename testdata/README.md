@@ -49,6 +49,7 @@ Each question has a kind, to see which kind fails:
 python3 scripts/eval_rag.py           # needs Ollama; first run adds the documents (slow)
 python3 scripts/eval_rag.py --fresh --model qwen3:14b
 python3 scripts/eval_rag.py --mode search   # correct page in the top 1, 3, 5 chunks? (needs bge-m3)
+python3 scripts/eval_rag.py --mode search --method vector   # or keyword; default hybrid
 ```
 
 The box is in `target/eval-box/`, the results in `target/eval-results/` (both ignored by git).

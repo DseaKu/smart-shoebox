@@ -2,7 +2,8 @@
 """Measure how well shoebox answers questions about the fake documents.
 
 Usage:
-    python3 scripts/eval_rag.py [--mode find|search] [--fresh] [--model NAME] [--kind KIND]
+    python3 scripts/eval_rag.py [--mode find|search] [--method vector|keyword|hybrid]
+                                [--fresh] [--model NAME] [--kind KIND]
 
 1. Makes the fake documents if needed (scripts/make_fake_docs.py).
 2. Fills an evaluation box in target/eval-box/ (ignored by git) with the
@@ -131,13 +132,13 @@ def eval_find(questions, files):
     return rows
 
 
-def eval_search(questions, files):
+def eval_search(questions, files, method):
     by_prefix = {digest[:12]: name for digest, name in files.items()}
     rows = []
     for q in questions:
         if q["kind"] == "none":
             continue
-        out = shoebox("search", "--top", str(max(TOP_K)), q["question"])
+        out = shoebox("search", "--method", method, "--top", str(max(TOP_K)), q["question"])
         found = []
         for line in out.splitlines():
             m = SEARCH_LINE.match(line)
@@ -156,7 +157,7 @@ def eval_search(questions, files):
     return rows
 
 
-def report_search(rows, model, embed_model):
+def report_search(rows, label):
     def recall(group, k, key="rank"):
         return sum(1 for r in group if r[key] and r[key] <= k)
 
@@ -164,7 +165,7 @@ def report_search(rows, model, embed_model):
     for row in rows:
         by_kind[row["kind"]].append(row)
     head = "  ".join(f"p@{k}" for k in TOP_K)
-    print(f"\nsearch with {embed_model}: correct page among the top k chunks (doc = correct document)")
+    print(f"\nsearch {label}: correct page among the top k chunks (doc = correct document)")
     print(f"  {'kind':8} {'n':>2}  {head}  doc@1")
     for kind, group in sorted(by_kind.items()) + [("all", rows)]:
         cells = "  ".join(f"{recall(group, k):3}" for k in TOP_K)
@@ -172,7 +173,7 @@ def report_search(rows, model, embed_model):
 
     RESULTS.mkdir(parents=True, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    out = RESULTS / f"search_{stamp}.tsv"
+    out = RESULTS / f"search_{label.split()[0]}_{stamp}.tsv"
     lines = ["id\tkind\trank\tdoc_rank\texpected\tfound\tquestion"]
     for r in rows:
         lines.append("\t".join([r["id"], r["kind"], str(r["rank"] or ""), str(r["doc_rank"] or ""),
@@ -207,6 +208,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--mode", choices=["find", "search"], default="find",
                         help="what to measure (default: find)")
+    parser.add_argument("--method", choices=["vector", "keyword", "hybrid"], default="hybrid",
+                        help="search mode: how to rank the chunks (default: hybrid)")
     parser.add_argument("--fresh", action="store_true", help="start with an empty box")
     parser.add_argument("--model", help="Ollama model for the box (default: as in its shoebox.yaml)")
     parser.add_argument("--kind", help="only questions of this kind (fact, synonym, number, …)")
@@ -232,7 +235,8 @@ def main():
     if args.mode == "find":
         report(eval_find(questions, files), model)
     else:
-        report_search(eval_search(questions, files), model, embed_model)
+        label = f"{args.method} ({embed_model})"
+        report_search(eval_search(questions, files, args.method), label)
 
 
 if __name__ == "__main__":
