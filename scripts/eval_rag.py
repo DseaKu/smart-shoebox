@@ -2,7 +2,7 @@
 """Measure how well shoebox answers questions about the fake documents.
 
 Usage:
-    python3 scripts/eval_rag.py [--mode find|search] [--method vector|keyword|hybrid]
+    python3 scripts/eval_rag.py [--mode find|search|ask] [--method vector|keyword|hybrid]
                                 [--fresh] [--model NAME] [--kind KIND]
 
 1. Makes the fake documents if needed (scripts/make_fake_docs.py).
@@ -22,6 +22,13 @@ Modes:
           Scored per page: is an expected page among the top 1, 3, 5 chunks
           (recall@k)? Questions of kind `none` are left out: a search always
           returns its best chunks; saying "not found" is the answer's job (7.5).
+  ask     `shoebox ask`: the answer and its checked sources (ROADMAP 7.5).
+          answer  the expected answer is in it (same words, same number or
+                  date in another format, or the same reference number);
+          source  a source is on an expected page;
+          wrong   an answer was given, but not the expected one;
+          missed  "not found" although the documents have the answer.
+          For kind `none`, correct means "not found".
 
 Needs a running Ollama. Results go to target/eval-results/.
 """
@@ -183,6 +190,111 @@ def report_search(rows, label):
     print(f"details: {out}")
 
 
+SOURCE_LINE = re.compile(r"^  - .* p(\d+) \(([0-9a-f]{12})\): ")
+NOT_FOUND = "Not found in your documents."
+DATE = re.compile(r"^(\d{2})\.(\d{2})\.(\d{4})$")
+NUMBER = re.compile(r"\d[\d.,]*\d|\d")
+
+
+def german_number(token):
+    """2.340,00 → 2340.0; 164,80 → 164.8; 2.340 → 2340; 01.04.2024 → None."""
+    if "," in token:
+        token = token.replace(".", "").replace(",", ".")
+    elif token.count(".") == 1 and len(token.split(".")[1]) == 3:
+        token = token.replace(".", "")
+    elif "." in token:
+        return None
+    try:
+        return float(token)
+    except ValueError:
+        return None
+
+
+def answer_ok(expected, answer):
+    a = norm(answer)
+    a_alnum = re.sub(r"[^0-9a-zäöüß]", "", a)
+    for alt in expected.split(" | "):
+        e = norm(alt)
+        if e in a:
+            return True
+        e_alnum = re.sub(r"[^0-9a-zäöüß]", "", e)
+        if re.search(r"\d", e) and len(e_alnum) >= 6 and e_alnum in a_alnum:
+            return True  # reference numbers with other separators
+        date = DATE.match(alt)
+        if date:
+            d, m, y = date.groups()
+            if any(v in answer for v in (f"{int(d)}.{int(m)}.{y}", f"{y}-{m}-{d}")):
+                return True
+            continue
+        wanted = [german_number(t) for t in NUMBER.findall(alt)]
+        if len(wanted) == 1 and wanted[0] is not None:
+            got = {german_number(t) for t in NUMBER.findall(answer)}
+            if wanted[0] in got:
+                return True
+    return False
+
+
+def eval_ask(questions, files):
+    by_prefix = {digest[:12]: name for digest, name in files.items()}
+    rows = []
+    for q in questions:
+        started = datetime.datetime.now()
+        result = run([str(SHOEBOX), "ask", q["question"]], cwd=BOX)
+        seconds = (datetime.datetime.now() - started).total_seconds()
+        if result.returncode != 0:
+            answer, sources, verdict = f"error: {result.stderr.strip()}", [], "error"
+        else:
+            lines = result.stdout.splitlines()
+            answer = lines[0] if lines else ""
+            sources = []
+            for line in lines:
+                m = SOURCE_LINE.match(line)
+                if m:
+                    sources.append((by_prefix.get(m.group(2), "?"), int(m.group(1))))
+            not_found = answer == NOT_FOUND
+            if q["kind"] == "none":
+                verdict = "correct" if not_found else "wrong"
+            elif not_found:
+                verdict = "missed"
+            else:
+                verdict = "correct" if answer_ok(q["answer"], answer) else "wrong"
+        source_ok = any(f == q["file"] and p in q["pages"] for f, p in sources)
+        rows.append({**q, "answer_text": answer, "verdict": verdict, "source_ok": source_ok,
+                     "sources": [f"{f}:p{p}" for f, p in sources], "seconds": seconds})
+        mark = {"correct": "ok  ", "wrong": "WRONG", "missed": "MISS", "error": "ERR "}[verdict]
+        print(f"{mark:5} {q['id']} {q['kind']:8} {q['question']}  ({seconds:.0f} s)")
+        if verdict != "correct":
+            unchecked = [l.strip() for l in result.stderr.splitlines() if "unchecked" in l or l.strip().startswith("(")]
+            print(f"       expected: {q['answer'] or '(not found)'}; got: {answer}")
+            for line in unchecked:
+                print(f"       {line}")
+    return rows
+
+
+def report_ask(rows, label):
+    by_kind = collections.defaultdict(list)
+    for row in rows:
+        by_kind[row["kind"]].append(row)
+    print(f"\nask {label}")
+    print(f"  {'kind':8} {'n':>2}  correct  source  wrong  missed")
+    for kind, group in sorted(by_kind.items()) + [("all", rows)]:
+        count = lambda v: sum(1 for r in group if r["verdict"] == v)
+        sources = sum(1 for r in group if r["source_ok"])
+        print(f"  {kind:8} {len(group):2}  {count('correct'):7}  {sources:6}  {count('wrong'):5}  {count('missed'):6}")
+    seconds = [r["seconds"] for r in rows]
+    print(f"  {sum(seconds) / len(seconds):.1f} s per question on average")
+
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    out = RESULTS / f"ask_{stamp}.tsv"
+    lines = ["id\tkind\tverdict\tsource_ok\texpected\tanswer\tsources\tquestion"]
+    for r in rows:
+        lines.append("\t".join([r["id"], r["kind"], r["verdict"], str(r["source_ok"]), r["answer"],
+                                r["answer_text"], ",".join(r["sources"]), r["question"]]))
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"details: {out}")
+
+
 def report(rows, model):
     by_kind = collections.defaultdict(list)
     for row in rows:
@@ -206,7 +318,7 @@ def report(rows, model):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--mode", choices=["find", "search"], default="find",
+    parser.add_argument("--mode", choices=["find", "search", "ask"], default="find",
                         help="what to measure (default: find)")
     parser.add_argument("--method", choices=["vector", "keyword", "hybrid"], default="hybrid",
                         help="search mode: how to rank the chunks (default: hybrid)")
@@ -234,6 +346,8 @@ def main():
     print(f"page text: all {len(questions)} answers are in the saved text\n")
     if args.mode == "find":
         report(eval_find(questions, files), model)
+    elif args.mode == "ask":
+        report_ask(eval_ask(questions, files), f"with {model}, search hybrid ({embed_model})")
     else:
         label = f"{args.method} ({embed_model})"
         report_search(eval_search(questions, files, args.method), label)

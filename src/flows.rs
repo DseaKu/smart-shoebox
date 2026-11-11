@@ -1,8 +1,10 @@
 //! End-to-end tests of the commands with a fake model and generated PDFs.
 //! They run without Ollama and without OCR (the test PDFs contain real text).
 
-use crate::testutil::{FakeModel, TestBox, pdf};
-use crate::{add, chunk, complete, find, index, pagetext, prompt, rename, sort, store, wizard};
+use crate::testutil::{FakeEmbedder, FakeModel, TestBox, pdf};
+use crate::{
+    add, ask, chunk, complete, find, index, pagetext, prompt, rename, sort, store, wizard,
+};
 use std::fs;
 
 const TAX_NOTICE: &str =
@@ -468,4 +470,104 @@ async fn chunks_of_the_box_come_from_the_saved_page_text() {
     let found = chunk::of_box(&t.ws).unwrap();
     assert!(found.chunks.is_empty());
     assert_eq!(found.without_text, [hash]);
+}
+
+#[tokio::test]
+async fn ask_answers_from_the_page_text_with_a_checked_source() {
+    let t = TestBox::new("ask");
+    let file = t.dir.join("vertrag.pdf");
+    pdf(
+        &file,
+        &[
+            "Seite 1 von 2\nWohnraummietvertrag Lindenweg 12",
+            "Seite 2 von 2\nDie Kaution betraegt 2.340,00 EUR",
+        ],
+    );
+    let model = FakeModel::new(|role, message| match role {
+        "extractor" => entry_json("2024-02-12", &["wohnung"], "Mietvertrag"),
+        // The excerpt with the deposit is sent; the model quotes it.
+        "answerer" => {
+            let n = message
+                .split("\n\n")
+                .find(|block| block.contains("Kaution"))
+                .and_then(|block| block.strip_prefix('['))
+                .and_then(|rest| rest.split(']').next())
+                .unwrap()
+                .to_string();
+            format!(
+                r#"{{"found": true, "answer": "Die Kaution beträgt 2.340,00 EUR.",
+                "sources": [{{"excerpt": {n}, "quote": "Kaution betraegt 2.340,00 EUR"}}]}}"#
+            )
+        }
+        // The second check sees the answer and the page with the deposit.
+        "verifier" => {
+            assert!(
+                message.contains("Proposed answer: Die Kaution"),
+                "{message}"
+            );
+            assert!(
+                message.contains("Kaution betraegt 2.340,00 EUR"),
+                "{message}"
+            );
+            r#"{"supported": true, "reason": "Die Seite nennt die Kaution."}"#.to_string()
+        }
+        other => panic!("unexpected role {other}"),
+    });
+    prompt::script(&["y"]);
+    add::run(&t.config, &t.ws, &model, &file).await.unwrap();
+
+    let embedder = FakeEmbedder::new("fake");
+    let searchable = crate::retrieve::Searchable::load(&t.ws).unwrap();
+    let outcome = ask::answer(
+        &t.ws,
+        &model,
+        &embedder,
+        &searchable,
+        "Wie hoch ist die Kaution?",
+    )
+    .await
+    .unwrap();
+    let ask::Outcome::Answered { answer, sources } = outcome else {
+        panic!("{outcome:?}")
+    };
+    assert!(answer.contains("2.340,00"));
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].chunk.page, 2);
+
+    // A real quote that does not answer the question: the second check says
+    // no, so the answer is "not found", with the model's words kept.
+    let doubtful = FakeModel::new(|role, message| match role {
+        "answerer" => {
+            let n = message
+                .split("\n\n")
+                .find(|block| block.contains("Kaution"))
+                .and_then(|block| block.strip_prefix('['))
+                .and_then(|rest| rest.split(']').next())
+                .unwrap()
+                .to_string();
+            format!(
+                r#"{{"found": true, "answer": "Die Miete beträgt 2.340,00 EUR.",
+                "sources": [{{"excerpt": {n}, "quote": "Kaution betraegt 2.340,00 EUR"}}]}}"#
+            )
+        }
+        "verifier" => {
+            r#"{"supported": false, "reason": "Die Seite nennt die Kaution, nicht die Miete."}"#
+                .to_string()
+        }
+        other => panic!("unexpected role {other}"),
+    });
+    let outcome = ask::answer(
+        &t.ws,
+        &doubtful,
+        &embedder,
+        &searchable,
+        "Wie hoch ist die Miete?",
+    )
+    .await
+    .unwrap();
+    let ask::Outcome::NotFound { why, claimed } = outcome else {
+        panic!("{outcome:?}")
+    };
+    assert!(why.contains("nicht die Miete"), "{why}");
+    assert_eq!(claimed.as_deref(), Some("Die Miete beträgt 2.340,00 EUR."));
 }

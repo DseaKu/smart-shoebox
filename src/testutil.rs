@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// A model with fixed answers. `answer(role, message)` gets the role's short
-/// name ("extractor", "reviewer", "namer", "finder", "sorter", "cataloguer") and returns the
+/// name ("extractor", "reviewer", "namer", "finder", "sorter", "cataloguer", "answerer", "verifier") and returns the
 /// reply. Every call is recorded in `calls`.
 type Answerer = Box<dyn Fn(&str, &str) -> String>;
 
@@ -95,6 +95,8 @@ fn role_name(role: &str) -> &'static str {
         (roles::FINDER, "finder"),
         (roles::SORTER, "sorter"),
         (roles::CATALOGUER, "cataloguer"),
+        (roles::ANSWERER, "answerer"),
+        (roles::VERIFIER, "verifier"),
     ]
     .iter()
     .find(|(text, _)| *text == role)

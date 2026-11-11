@@ -50,6 +50,7 @@ python3 scripts/eval_rag.py           # needs Ollama; first run adds the documen
 python3 scripts/eval_rag.py --fresh --model qwen3:14b
 python3 scripts/eval_rag.py --mode search   # correct page in the top 1, 3, 5 chunks? (needs bge-m3)
 python3 scripts/eval_rag.py --mode search --method vector   # or keyword; default hybrid
+python3 scripts/eval_rag.py --mode ask      # answers: correct? source on the right page? (slow: ~10 s per question)
 ```
 
 The box is in `target/eval-box/`, the results in `target/eval-results/` (both ignored by git).

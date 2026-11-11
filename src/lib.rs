@@ -5,6 +5,7 @@
 //! (src/bin/shoebox-gui.rs).
 
 pub mod add;
+pub mod ask;
 pub mod chunk;
 pub mod complete;
 pub mod config;

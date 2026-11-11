@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use smart_shoebox::{
-    Res, add, chunk, complete, config, find,
+    Res, add, ask, chunk, complete, config, find,
     llm::Llm,
     merge, pagetext, prompt, rename,
     retrieve::{self, Method},
@@ -42,6 +42,12 @@ enum Command {
         /// The PDF to add
         #[arg(value_name = "PDF")]
         file: PathBuf,
+    },
+    /// Ask a question about the documents: an answer from their text, with sources
+    Ask {
+        /// The question, e.g. "Wie hoch ist die Kaution?" (quotes are optional)
+        #[arg(required = true, num_args = 1..)]
+        question: Vec<String>,
     },
     /// Find documents by asking a question in plain language
     Find {
@@ -165,6 +171,11 @@ async fn run(command: Command) -> Res<()> {
         Command::Add { file } => {
             let (ws, config, llm) = open_box()?;
             add::run(&config, &ws, &llm, &file).await
+        }
+        Command::Ask { question } => {
+            let (ws, config, llm) = open_box()?;
+            let embedder = OllamaEmbedder::new(&config);
+            ask::run(&ws, &llm, &embedder, &question.join(" ")).await
         }
         Command::Find { question, to } => {
             let (ws, config, llm) = open_box()?;

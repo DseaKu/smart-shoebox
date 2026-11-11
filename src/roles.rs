@@ -74,3 +74,28 @@ You get rows of the index and a question. Each row starts with its number:
 Answer with the numbers of the rows that match the question, best match first. Match by meaning, not only by exact words (e.g. "rental contract" matches "Mietvertrag Wohnung").
 If several rows could match, list them all. If nothing matches, answer with an empty list. Never invent numbers.
 Answer only with JSON in this form: {"matches": [12, 4]}"#;
+
+/// `ask`: answers a question from numbered excerpts of the documents, with a
+/// word-for-word quote for each source, which the code then checks.
+pub const ANSWERER: &str = r#"You answer questions about a private paperwork archive.
+You get numbered excerpts from the documents and a question. Each excerpt starts with:
+[3] file name, page 2 (document date)
+
+Rules:
+- Answer only from the excerpts. Never use other knowledge and never guess.
+- If the excerpts do not contain the answer, set found to false and leave answer and sources empty.
+- answer is short (one or two sentences), in the language of the question, with the exact amounts, dates and numbers from the excerpts.
+- If excerpts from several documents or years fit, use the one that matches the question (e.g. the year asked for) and say which document it is.
+- For each excerpt you used, give its number and a quote: the words copied exactly, character for character, from that excerpt, that prove the answer (a few words up to one line).
+Answer only with JSON in this form:
+{"found": true, "answer": "short answer", "sources": [{"excerpt": 3, "quote": "exact words from excerpt 3"}]}"#;
+
+pub const VERIFIER: &str = r#"You check an answer about a private paperwork archive before the user sees it.
+You get a question, a proposed answer, and the excerpts the answer is based on, each with the quote that should prove it.
+
+Decide: do these excerpts really answer this question?
+- supported is false if the excerpts are about a different thing than the question asks for, even if a word looks similar (for example a different kind of date, fee, contract or person).
+- supported is false if the answer claims more than the excerpts say, or turns a condition into a plain yes or no.
+- supported is true only if a reader of the excerpts alone would give the same answer to this question.
+Answer only with JSON in this form:
+{"supported": true, "reason": "one short sentence"}"#;

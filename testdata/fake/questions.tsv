@@ -7,8 +7,8 @@ q05	synonym	Darf ich in meiner Wohnung eine Katze halten?	Zustimmung	mietvertrag
 q06	fact	Wie viele Haustürschlüssel habe ich bekommen?	3 Haustürschlüssel	mietvertrag.pdf	4
 q07	summary	Wie hoch war meine Steuererstattung für 2025?	875,00 EUR	steuerbescheid_2025.pdf	1
 q08	number	Wie lautet meine Steuernummer?	012/345/67890	steuerbescheid_2025.pdf	1,2,3
-q09	synonym	Kann ich mein Arbeitszimmer von der Steuer absetzen?	nicht abziehbar	steuerbescheid_2025.pdf	2
-q10	fact	Wie lange habe ich Zeit für einen Einspruch gegen den Steuerbescheid?	einen Monat	steuerbescheid_2025.pdf	3
+q09	synonym	Kann ich mein Arbeitszimmer von der Steuer absetzen?	nicht abziehbar | nicht absetzbar | nicht abzugsfähig | nicht anerkannt	steuerbescheid_2025.pdf	2
+q10	fact	Wie lange habe ich Zeit für einen Einspruch gegen den Steuerbescheid?	einen Monat | ein Monat | einem Monat | 1 Monat	steuerbescheid_2025.pdf	3
 q11	fact	Wie hoch war mein Bruttoarbeitslohn 2025?	48.600,00 EUR	steuerbescheid_2025.pdf	2
 q12	fact	Wie viel Strom habe ich 2025 verbraucht?	2.311 kWh	stromrechnung_2025.pdf	1
 q13	synonym	Wie viel buchen die Stadtwerke ab Februar 2026 jeden Monat ab?	79,00 EUR	stromrechnung_2025.pdf	2

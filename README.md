@@ -49,6 +49,7 @@ Requires `ocrmypdf` and [Ollama](https://ollama.com) with a local model.
 | ------- | ------------ |
 | `init [folder]` | Create a box (settings, `store/`, empty index). |
 | `add <file>…` | Copy a PDF into the store, let the AI propose the entry, review it, add it to the index. |
+| `ask "<question>"` | Answer a question from the text inside the documents, with the source pages and a quote that the code checks. "Not found" instead of a guess. |
 | `find "<question>"` | Ask the AI which index rows match; `--to <folder>` copies them out with readable names. |
 | `name <file>…` | Rename PDFs to readable names like `2026-03-14_steuerbescheid-2025-finanzamt.pdf`. |
 | `merge <a.pdf> <b.pdf>…` | Append PDFs into one. No AI. |

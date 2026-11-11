@@ -174,14 +174,51 @@ Order: 7.1 and 7.6 first, so the effect of 7.2–7.5 can be measured.
   ("brutto" does not match "Bruttogehalt"; 4 letters of "brutto…" is too
   little to match safely).
 
-### 7.5 `ask` command
-- [ ] Send the top 6–8 chunks with labels like `[3:p2]`; they fit in `context_size: 16384`.
-- [ ] Strict JSON answer, like `sort`: `{answer, sources: [{chunk, quote}]}`.
-- [ ] Plain code checks that each quote really occurs in its chunk. No quote
-      found → "not found in your documents", no guess.
-- [ ] Tests with the fake model (`testutil::FakeModel`), like the other flows.
+### 7.5 `ask` command — done
+- [x] `shoebox ask "<question>"` (`ask.rs`): the 8 best chunks of the hybrid
+      search, numbered `[1]`…`[8]` with file name, page and date; they fit in
+      `context_size: 16384`. New role `ANSWERER` in `roles.rs`.
+- [x] Strict JSON answer, like `sort`: `{found, answer, sources: [{excerpt, quote}]}`.
+- [x] Plain code checks the answer: each quote must be in the excerpt it names
+      (ignoring case, spacing, umlaut spelling; at least 4 characters), and each
+      number in the answer must be in a source that passed or in the question.
+      Otherwise "Not found in your documents"; the model's unchecked answer is
+      shown below it.
+- [x] Tests with the fake model: the checks (wrong excerpt, invented number,
+      other number formats, numbers from the question) and an `ask` flow.
+- [x] Measured (`eval_rag.py --mode ask`, 27 questions, `qwen3:8b` + `bge-m3`,
+      2026-11-11): **26 of 27** correct, a source on the right page for all 25
+      answerable questions, about 7–10 s per question (`find`: 17 of 27 documents,
+      and no answer). The first run gave 24 of 27:
+      - Q11 "Bruttoarbeitslohn 2025" was rejected because "2025" was not on the
+        source page; fixed: numbers from the question are allowed.
+      - Q05 "Katze": the quote was right ("Für Hunde und Katzen ist die
+        Zustimmung nötig"), the answer "Nein" was wrong. Correct in the second
+        run: the model's conclusions vary between runs.
+- [x] Second check (`VERIFIER` in `roles.rs`): the quote check proves that the
+      quoted words are in the document, not that they answer the question. Q27
+      "Hauptuntersuchung" (no document has it) was answered with the
+      insurance's "Hauptfälligkeit: 01.01." with a real quote. Now a second
+      model call sees only the question, the answer and the source excerpts and
+      says whether they answer it; if not, "Not found". Three ideas measured
+      (27 questions, 2026-11-11):
 
-### 7.6 Measure with the test data — started
+      | Variant | Correct | Q27 | Q05 | s / question |
+      | --- | --- | --- | --- | --- |
+      | `qwen3:8b`, no second check | 26 | wrong | ok | 10–18 |
+      | stricter answerer prompt | 26 | wrong ("Hauptuntersuchung … 01.01.") | ok | 18 |
+      | second check (kept) | 26 | **ok** | wrong | 26 |
+      | second check + `qwen3:14b` | 26 | **ok** | wrong | 142 |
+
+      The stricter prompt made Q27 worse (the model renamed the date), so it
+      was dropped. The second check rejected no correct answer. `qwen3:14b`
+      gives the same result and is far too slow on 16 GB RAM.
+- Open: Q05 "Katze": the source says "Für Hunde und Katzen ist die Zustimmung
+  nötig"; the answer "Nein" ignores the condition, and the second check accepts
+  it. It varies between runs. The time per question also varies with the load
+  of the machine (10 s in the first run, 18–26 s later).
+
+### 7.6 Measure with the test data — done
 - [x] `testdata/fake/questions.tsv`: 27 questions with known answers and source
       pages, e.g. "Wie hoch ist die Kaution?" → 2.340,00 EUR, `mietvertrag.pdf` p2.
       Made by `scripts/make_fake_docs.py`, which checks that each answer is on
@@ -196,8 +233,8 @@ Order: 7.1 and 7.6 first, so the effect of 7.2–7.5 can be measured.
       nothing. This is the gap that searching the page text must close.
 - [x] Measure retrieval per page: `eval_rag.py --mode search` (recall@1/3/5,
       see 7.3 for the first numbers).
-- [ ] With 7.5: measure answers (correct? correct source?) separately from
-      retrieval, to see which part fails.
+- [x] Measure answers (correct? source on the right page? wrong? missed?)
+      separately from retrieval: `eval_rag.py --mode ask` (numbers in 7.5).
 
 ## Not planned for now
 
