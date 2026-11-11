@@ -98,10 +98,14 @@ and answers with sources:
 
 Order: 7.1 and 7.6 first, so the effect of 7.2–7.5 can be measured.
 
-### 7.1 Keep the page text
-- [ ] `add` saves the extracted (or OCR) text per page next to the PDF,
-      e.g. `store/<hash>.pages.json`. It stays private (`store/` is ignored).
-- [ ] A backfill command for documents already in the box.
+### 7.1 Keep the page text — done
+- [x] `add` (and `wizard`, and the window, through `add::save`) saves the
+      extracted (or OCR) text per page as `store/<hash>.pages.json` (`pagetext.rs`).
+      It stays private (`store/` is ignored). Pages without text are now OCR'd
+      also in a partly digital PDF; if that OCR fails, the other pages are kept.
+- [x] Backfill: `shoebox text` (`--all` reads every document again).
+- [x] Tests: save/load, one text per page, `add` and `wizard` save it, backfill
+      (including a missing PDF).
 
 ### 7.2 Chunks
 - [ ] One chunk per page; long pages split at about 400 tokens.

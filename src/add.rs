@@ -1,7 +1,7 @@
 //! `add`: put a PDF into the box with a date, tags and a summary.
 
 use crate::{
-    Res, config::Config, entry::Entry, hash, index, llm::Model, pdf, prompt, roles, store,
+    Res, config::Config, entry::Entry, hash, index, llm::Model, pagetext, prompt, roles, store,
     workspace::Workspace,
 };
 use schemars::JsonSchema;
@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Hash → duplicate check → extract text (OCR if needed) → AI proposal (and
-/// review, if on) → my confirmation → copy into `store/` → append to `index.tsv`.
+/// review, if on) → my confirmation → copy into `store/` with its page text →
+/// append to `index.tsv`.
 pub async fn run(config: &Config, ws: &Workspace, llm: &impl Model, file: &Path) -> Res<()> {
     let proposal = match prepare(config, ws, llm, file).await? {
         Prepared::AlreadyThere(stored) => {
@@ -43,6 +44,8 @@ pub struct Proposal {
     pub file: PathBuf,
     pub hash: String,
     pub entry: Entry,
+    /// The text of each page, saved next to the PDF (see `pagetext`).
+    pub pages: Vec<String>,
     /// Set if the model gave no usable answer; `entry` is then empty.
     pub model_error: Option<String>,
 }
@@ -55,17 +58,17 @@ pub async fn prepare(
     llm: &impl Model,
     file: &Path,
 ) -> Res<Prepared> {
-    prepare_with_text(config, ws, llm, file, None).await
+    prepare_with_pages(config, ws, llm, file, None).await
 }
 
-/// Like `prepare`, with the document's text if the caller already has it (so it
-/// is not read and OCR'd again).
-pub async fn prepare_with_text(
+/// Like `prepare`, with the page texts if the caller already has them (so the
+/// file is not read and OCR'd again).
+pub async fn prepare_with_pages(
     config: &Config,
     ws: &Workspace,
     llm: &impl Model,
     file: &Path,
-    known_text: Option<&str>,
+    known_pages: Option<Vec<String>>,
 ) -> Res<Prepared> {
     let hash = hash::sha256_file(file)?;
     let index = index::read(&ws.index_path())?;
@@ -73,10 +76,11 @@ pub async fn prepare_with_text(
         return Ok(Prepared::AlreadyThere(store::path(ws, &hash)));
     }
 
-    let text = match known_text {
-        Some(text) => text.to_string(),
-        None => pdf::extract_text(file, &config.ocr_language)?,
+    let pages = match known_pages {
+        Some(pages) => pages,
+        None => pagetext::read_pdf(file, &config.ocr_language)?,
     };
+    let text = pagetext::joined(&pages);
 
     eprintln!("Asking {} for date, tags and summary…", llm.name());
     let (entry, model_error) = match propose(llm, &text, &index::tags(&index), config.review).await
@@ -88,11 +92,14 @@ pub async fn prepare_with_text(
         file: file.to_path_buf(),
         hash,
         entry,
+        pages,
         model_error,
     }))
 }
 
-/// After my confirmation: copy into `store/` and append the (cleaned) entry.
+/// After my confirmation: copy into `store/`, save the page text next to it and
+/// append the (cleaned) entry. The index row comes last, so a document in the
+/// index always has its page text.
 pub fn save(ws: &Workspace, proposal: &Proposal, entry: &Entry) -> Res<PathBuf> {
     let entry = entry.clone().normalized();
     let original_name = proposal
@@ -101,6 +108,7 @@ pub fn save(ws: &Workspace, proposal: &Proposal, entry: &Entry) -> Res<PathBuf> 
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let stored = store::copy(ws, &proposal.file, &proposal.hash)?;
+    pagetext::save(ws, &proposal.hash, &proposal.pages)?;
     index::append(&ws.index_path(), &proposal.hash, &original_name, &entry)?;
     Ok(stored)
 }

@@ -18,6 +18,7 @@ pub mod llm;
 pub mod merge;
 pub mod naming;
 pub mod pages;
+pub mod pagetext;
 pub mod pdf;
 pub mod pdfdoc;
 pub mod prompt;

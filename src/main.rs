@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use smart_shoebox::{
-    Res, add, complete, config, find, llm::Llm, merge, prompt, rename, sort, wizard, workspace,
-    workspace::Workspace,
+    Res, add, complete, config, find, llm::Llm, merge, pagetext, prompt, rename, sort, wizard,
+    workspace, workspace::Workspace,
 };
 use std::path::PathBuf;
 use std::process::exit;
@@ -91,6 +91,12 @@ enum Command {
         #[arg(long = "in", value_name = "FOLDER")]
         search_in: Option<PathBuf>,
     },
+    /// Save the page text of stored documents that have none yet (for searching inside them)
+    Text {
+        /// Read every document again, also those that have their page text
+        #[arg(long)]
+        all: bool,
+    },
     /// Handle a pile of PDFs without questions: check, complete, name and add each one
     Wizard {
         /// PDFs and/or folders of PDFs
@@ -160,6 +166,10 @@ async fn run(command: Command) -> Res<()> {
         Command::Counterpart { file, search_in } => {
             let (_ws, config, llm) = open_box()?;
             complete::counterpart(&config, &llm, &file, search_in.as_deref()).await
+        }
+        Command::Text { all } => {
+            let (ws, config, _llm) = open_box()?;
+            pagetext::backfill(&config, &ws, all)
         }
         Command::Wizard { inputs } => {
             let (ws, config, llm) = open_box()?;

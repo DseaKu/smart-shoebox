@@ -56,6 +56,7 @@ Requires `ocrmypdf` and [Ollama](https://ollama.com) with a local model.
 | `check <scan.pdf>` | Is the scan complete, readable, and already in the box? Offers the fixes. |
 | `counterpart <scan.pdf>` | Find the other PDF that holds the missing pages, merge and sort both. |
 | `wizard <pdf or folder>…` | Handle a whole pile: check, complete, name and add, with a list of what needs a decision. |
+| `text [--all]` | Save the page text of documents added before it was kept (for searching inside documents, planned). |
 | `verify` | Planned: rehash the store and compare with the index. |
 
 `shoebox --help` and `shoebox <command> --help` list all options. `-y` answers

@@ -21,7 +21,7 @@ use crate::{
     llm::Model,
     naming,
     pages::join_numbers,
-    pdf, rename,
+    pagetext, rename,
     scan::Scan,
     sort, trash,
     workspace::Workspace,
@@ -247,7 +247,7 @@ async fn handle_one(
     let report = &diagnosis.report;
     // The text is known from the check, so naming and adding need no second OCR.
     // A completed result is built from searchable pages; its text is read from it.
-    let mut text = Some(diagnosis.text());
+    let mut page_texts = Some(diagnosis.page_texts());
 
     if report.is_incomplete() {
         let missing = join_numbers(&report.missing);
@@ -290,7 +290,7 @@ async fn handle_one(
             file_name(partner)
         ));
         item.file = out;
-        text = None;
+        page_texts = None;
         if !best.still.is_empty() {
             return Ok(Status::NeedsYou(format!(
                 "printed page {} still missing after completing",
@@ -306,14 +306,15 @@ async fn handle_one(
     }
 
     if naming::is_readable(&file_stem(&item.file)) {
-        return add_as_is(config, ws, llm, item, text.as_deref(), log).await;
+        return add_as_is(config, ws, llm, item, page_texts, log).await;
     }
 
     // An unreadable name: one request gives the entry and the name.
-    let text = match text {
-        Some(text) => text,
-        None => pdf::extract_text(&item.file, &config.ocr_language)?,
+    let page_texts = match page_texts {
+        Some(texts) => texts,
+        None => pagetext::read_pdf(&item.file, &config.ocr_language)?,
     };
+    let text = pagetext::joined(&page_texts);
     let hash = hash::sha256_file(&item.file)?;
     let index = index::read(&ws.index_path())?;
     if index::contains(&index, &hash) {
@@ -343,6 +344,7 @@ async fn handle_one(
         file: item.file.clone(),
         hash,
         entry,
+        pages: page_texts,
         model_error: None,
     };
     let stored = add::save(ws, &proposal, &proposal.entry)?;
@@ -358,14 +360,14 @@ async fn add_as_is(
     ws: &Workspace,
     llm: &impl Model,
     item: &Item,
-    text: Option<&str>,
+    page_texts: Option<Vec<String>>,
     log: &mut impl FnMut(String),
 ) -> Res<Status> {
     log(format!(
         "Asking for date, tags and summary of {}…",
         file_name(&item.file)
     ));
-    match add::prepare_with_text(config, ws, llm, &item.file, text).await? {
+    match add::prepare_with_pages(config, ws, llm, &item.file, page_texts).await? {
         Prepared::AlreadyThere(_) => Ok(Status::AlreadyInBox),
         Prepared::New(proposal) => {
             if let Some(e) = &proposal.model_error {

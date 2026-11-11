@@ -86,7 +86,8 @@ smart-shoebox/               # build space (committed)
 └── box/                     # user space (NOT committed)
     ├── shoebox.yaml         # my settings: model, context size, OCR language
     ├── index.tsv            # the index: one line per document
-    └── store/               # PDFs, named <sha256>.pdf
+    └── store/               # PDFs, named <sha256>.pdf, and their page text,
+                             # <sha256>.pages.json
 ```
 
 Getting started:
@@ -109,6 +110,12 @@ that folder. `merge` needs no box.
 - **Hash = location:** The hash is both the identity and the filename, so the
   path of a document is always `store/<hash>.pdf`. Renaming or moving the
   original has no effect.
+- **Page text:** Next to each PDF, `store/<hash>.pages.json` keeps the text of
+  each page (`{"pages": ["page 1 text", "page 2 text", …]}`; blank pages stay as
+  empty strings, so the positions match the PDF). It is read once when the PDF
+  is added (with OCR where needed) and is the source for searching inside
+  documents later (ROADMAP step 7). It is as private as the PDF itself.
+  `shoebox text` fills it in for documents added before it was kept.
 - **Deduplication:** Adding the same file twice is a no-op, because it produces
   the same hash.
 - **Index:** `index.tsv` is a tab-separated text file, easy to read, grep and
@@ -145,6 +152,7 @@ a3f9…   2026-03-14  bescheid.pdf      steuer,finanzamt  Steuerbescheid 2025, N
 | `check <scan.pdf> [--in <folder>]` | General health check: from the printed page numbers, is the scan complete (missing pages, blank pages, duplicates)? Is the file name readable? Is it already in the box? Then offers the fixes: `counterpart` if pages are missing, and a readable name (as with `name`) if the name is not, for the merged result if one was made. |
 | `counterpart <scan.pdf> [--in <folder>]` | Look through the other PDFs in the same folder (or `--in`) for the missing pages. A match must contain a missing page, must not contain the scan's own page numbers (another copy or another letter) or a different "von N", and must share at least 2 reference numbers or dates. Matches that share numbers found in few other PDFs (letter date, invoice number rather than contract number or IBAN) come first; every PDF not suggested is listed with the reason. If I agree, merge and sort both into `<scan>_complete.pdf`, then ask whether to move the two originals to the Trash. |
 | `wizard <pdf or folder>…` | Handle a whole pile without questions: check every PDF, complete incomplete scans with their counterpart from the same pile (merge and sort), give unreadable names a readable one, and add each document to the box. Whatever it cannot decide safely is listed for me with the reason. At the end it offers to move the merged originals to the Trash; nothing else is deleted. |
+| `text [--all]` | Save the page text (`store/<hash>.pages.json`) of every document in the index that has none yet, e.g. those added before it was kept. With `--all`, read every document again. Continues after a broken or missing file and reports it at the end. No AI. |
 | `verify` (planned) | Rehash every file in `store/` and compare with the index. Reports missing, unknown or corrupted files.                                                                                            |
 
 `shoebox --help` lists all commands, and `shoebox <command> --help` (e.g.
@@ -159,17 +167,19 @@ It skips my review, so wrong AI proposals go through unchecked.
 
 1. Compute the SHA-256 over the whole PDF file (all bytes, not the text or the
    filename).
-2. Extract the text (`pdf-extract`; for scanned PDFs without a text layer,
-   OCR with `ocrmypdf` on a temporary copy).
+2. Extract the text of each page (`pdf-extract`; pages without text, as in a
+   scan, are OCR'd with `ocrmypdf` on a temporary copy. If that OCR fails but
+   other pages have text, the document is added with a warning).
 3. Send the text to the AI together with the **list of existing tags**, with the
    instruction to reuse existing tags and only create a new one if none fit.
    This prevents tag drift (`steuer` / `steuern` / `tax`). A second AI pass
    reviews the proposal against the text.
 4. Show the proposed entry; I confirm or edit it.
-5. Copy the file to `store/<hash>.pdf` (only after confirming, so a rejected
-   document leaves nothing behind).
-6. Append the row to `index.tsv`. The extracted text is discarded (or kept
-   outside git), since it is sensitive and not needed for lookup.
+5. Copy the file to `store/<hash>.pdf` and save the page text as
+   `store/<hash>.pages.json` (only after confirming, so a rejected document
+   leaves nothing behind).
+6. Append the row to `index.tsv`. This comes last, so every document in the
+   index has its page text. Like the PDFs, the page text stays out of git.
 
 ### Finding a document
 

@@ -149,6 +149,11 @@ impl Diagnosis {
             .collect::<Vec<_>>()
             .join("\n")
     }
+
+    /// The text of each page, e.g. to save it with the document.
+    pub fn page_texts(&self) -> Vec<String> {
+        self.scan.pages.iter().map(|p| p.text.clone()).collect()
+    }
 }
 
 /// Reads the scan (OCR if needed) and checks pages, name and box. No AI.

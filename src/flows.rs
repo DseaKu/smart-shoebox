@@ -2,7 +2,7 @@
 //! They run without Ollama and without OCR (the test PDFs contain real text).
 
 use crate::testutil::{FakeModel, TestBox, pdf};
-use crate::{add, complete, find, index, prompt, rename, sort, store, wizard};
+use crate::{add, complete, find, index, pagetext, prompt, rename, sort, store, wizard};
 use std::fs;
 
 const TAX_NOTICE: &str =
@@ -48,6 +48,9 @@ async fn add_stores_and_indexes_a_document_once() {
     assert_eq!(rows[0].tags, "steuer,finanzamt");
     assert_eq!(rows[0].original_name, "bescheid.pdf");
     assert!(store::path(&t.ws, &rows[0].hash).is_file());
+    let saved = pagetext::load(&t.ws, &rows[0].hash).unwrap().unwrap();
+    assert_eq!(saved.len(), 1);
+    assert!(saved[0].contains("Steuerbescheid 2025"), "{saved:?}");
     assert_eq!(
         model.calls(),
         ["extractor"],
@@ -351,6 +354,16 @@ async fn wizard_completes_names_and_adds_a_pile_and_leaves_the_rest_to_me() {
     assert!(texts[1].starts_with("Seite 2 von 3"), "{texts:?}");
     assert!(texts[2].starts_with("Seite 3 von 3"), "{texts:?}");
     assert!(pile.join("2026-03-14_steuerbescheid-2025.pdf").is_file());
+    // Each added document has its page text; the completed one in sorted order.
+    for row in &rows {
+        let saved = pagetext::load(&t.ws, &row.hash).unwrap().unwrap();
+        if row.summary.starts_with("Nebenkosten") {
+            assert_eq!(saved.len(), 3, "{saved:?}");
+            assert!(saved[1].contains("Seite 2 von 3"), "{saved:?}");
+        } else {
+            assert!(saved[0].contains("Steuerbescheid"), "{saved:?}");
+        }
+    }
 
     let needs_you: Vec<&String> = lines
         .iter()
@@ -377,4 +390,50 @@ async fn wizard_completes_names_and_adds_a_pile_and_leaves_the_rest_to_me() {
         ["sorter", "cataloguer", "cataloguer"],
         "one request per document for name and entry"
     );
+}
+
+#[tokio::test]
+async fn text_fills_in_the_page_text_of_documents_added_before() {
+    let t = TestBox::new("text-backfill");
+    let file = t.dir.join("vertrag.pdf");
+    pdf(
+        &file,
+        &[
+            "Seite 1 von 2\nMietvertrag",
+            "Seite 2 von 2\nKaution 2340 EUR",
+        ],
+    );
+    let model = FakeModel::new(|_, _| entry_json("2024-02-12", &["wohnung"], "Mietvertrag"));
+    prompt::script(&["y"]);
+    add::run(&t.config, &t.ws, &model, &file).await.unwrap();
+    let hash = index::parse(&index::read(&t.ws.index_path()).unwrap())[0]
+        .hash
+        .clone();
+
+    // As if it had been added before page texts were saved.
+    fs::remove_file(pagetext::path(&t.ws, &hash)).unwrap();
+    pagetext::backfill(&t.config, &t.ws, false).unwrap();
+    let saved = pagetext::load(&t.ws, &hash).unwrap().unwrap();
+    assert_eq!(saved.len(), 2);
+    assert!(saved[1].contains("Kaution"), "{saved:?}");
+
+    // Nothing left to do; the file stays as it is.
+    let before = fs::metadata(pagetext::path(&t.ws, &hash))
+        .unwrap()
+        .modified()
+        .unwrap();
+    pagetext::backfill(&t.config, &t.ws, false).unwrap();
+    let after = fs::metadata(pagetext::path(&t.ws, &hash))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(before, after);
+
+    // A missing PDF is an error for that document, not a crash.
+    fs::remove_file(pagetext::path(&t.ws, &hash)).unwrap();
+    fs::remove_file(store::path(&t.ws, &hash)).unwrap();
+    let err = pagetext::backfill(&t.config, &t.ws, false)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("1 documents could not be read"), "{err}");
 }
