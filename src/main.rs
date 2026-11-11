@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use smart_shoebox::{
-    Res, add, complete, config, find, llm::Llm, merge, pagetext, prompt, rename, sort, wizard,
-    workspace, workspace::Workspace,
+    Res, add, chunk, complete, config, find, llm::Llm, merge, pagetext, prompt, rename, sort,
+    wizard, workspace, workspace::Workspace,
 };
 use std::path::PathBuf;
 use std::process::exit;
@@ -97,6 +97,12 @@ enum Command {
         #[arg(long)]
         all: bool,
     },
+    /// Show how the documents are cut into chunks for searching inside them (no AI)
+    Chunks {
+        /// Print the chunks of one document: a hash prefix or part of its file name
+        #[arg(long, value_name = "DOCUMENT")]
+        show: Option<String>,
+    },
     /// Handle a pile of PDFs without questions: check, complete, name and add each one
     Wizard {
         /// PDFs and/or folders of PDFs
@@ -166,6 +172,10 @@ async fn run(command: Command) -> Res<()> {
         Command::Counterpart { file, search_in } => {
             let (_ws, config, llm) = open_box()?;
             complete::counterpart(&config, &llm, &file, search_in.as_deref()).await
+        }
+        Command::Chunks { show } => {
+            let ws = Workspace::locate()?;
+            chunk::run(&ws, show.as_deref())
         }
         Command::Text { all } => {
             let (ws, config, _llm) = open_box()?;

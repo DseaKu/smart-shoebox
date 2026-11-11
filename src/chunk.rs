@@ -77,6 +77,108 @@ pub fn of_box(ws: &Workspace) -> Res<BoxChunks> {
     })
 }
 
+/// `shoebox chunks`: how the documents are cut, to check it by eye. Without
+/// `show`, one line per document; with it, the chunks of the matching document
+/// (a hash prefix or part of the original file name). No AI.
+pub fn run(ws: &Workspace, show: Option<&str>) -> Res<()> {
+    let rows = index::parse(&index::read(&ws.index_path())?);
+    match show {
+        None => print_overview(ws, &rows),
+        Some(wanted) => print_document(ws, &rows, wanted),
+    }
+}
+
+fn print_overview(ws: &Workspace, rows: &[index::Row]) -> Res<()> {
+    println!("pages chunks split   max  document");
+    let (mut total, mut missing) = (0, 0);
+    for row in rows {
+        let name = format!(
+            "{} {}  {}",
+            row.date,
+            row.original_name,
+            short_hash(&row.hash)
+        );
+        let Some(page_texts) = pagetext::load(ws, &row.hash)? else {
+            println!("    -      -     -     -  {name}  (no page text)");
+            missing += 1;
+            continue;
+        };
+        let chunks = of_document(&row.hash, &page_texts);
+        let split = chunks.iter().filter(|c| c.part > 0).count();
+        let max = chunks.iter().map(|c| len(&c.text)).max().unwrap_or(0);
+        println!(
+            "{:5} {:6} {:5} {:5}  {name}",
+            page_texts.len(),
+            chunks.len(),
+            split,
+            max
+        );
+        total += chunks.len();
+    }
+    println!(
+        "\n{} documents, {total} chunks (at most {MAX_CHUNK_CHARS} characters each)",
+        rows.len()
+    );
+    if missing > 0 {
+        println!("{missing} documents have no page text yet: run `shoebox text`.");
+    }
+    println!("Show the chunks of one document: shoebox chunks --show <hash or file name>");
+    Ok(())
+}
+
+fn print_document(ws: &Workspace, rows: &[index::Row], wanted: &str) -> Res<()> {
+    let row = find_row(rows, wanted)?;
+    let Some(page_texts) = pagetext::load(ws, &row.hash)? else {
+        return Err(format!(
+            "{} has no page text yet: run `shoebox text`",
+            row.original_name
+        )
+        .into());
+    };
+    println!("{} {}  {}", row.date, row.original_name, row.hash);
+    println!("{}", row.summary);
+    for chunk in of_document(&row.hash, &page_texts) {
+        println!(
+            "\n--- page {}, part {} ({} characters) ---",
+            chunk.page,
+            chunk.part,
+            len(&chunk.text)
+        );
+        println!("{}", chunk.text);
+    }
+    Ok(())
+}
+
+/// The one row whose hash starts with `wanted` or whose original file name
+/// contains it (ignoring case).
+fn find_row<'a>(rows: &'a [index::Row], wanted: &str) -> Res<&'a index::Row> {
+    let lower = wanted.to_lowercase();
+    let matches: Vec<&index::Row> = rows
+        .iter()
+        .filter(|r| r.hash.starts_with(&lower) || r.original_name.to_lowercase().contains(&lower))
+        .collect();
+    match matches.as_slice() {
+        [row] => Ok(row),
+        [] => Err(format!("no document matches \"{wanted}\"").into()),
+        several => {
+            let names: Vec<String> = several
+                .iter()
+                .map(|r| format!("  {} {}", short_hash(&r.hash), r.original_name))
+                .collect();
+            Err(format!(
+                "\"{wanted}\" matches {} documents, be more specific:\n{}",
+                several.len(),
+                names.join("\n")
+            )
+            .into())
+        }
+    }
+}
+
+fn short_hash(hash: &str) -> &str {
+    &hash[..hash.len().min(12)]
+}
+
 /// The page's lines with runs of whitespace collapsed (PDF text has many spaces
 /// for the layout, e.g. between a cost item and its amount), without empty lines.
 fn clean_lines(text: &str) -> Vec<String> {
@@ -232,6 +334,32 @@ mod tests {
             parts.iter().map(|p| len(p)).collect::<Vec<_>>(),
             [100, 100, 50]
         );
+    }
+
+    fn row(hash: &str, name: &str) -> index::Row {
+        index::Row {
+            hash: hash.into(),
+            date: "2026-01-01".into(),
+            tags: String::new(),
+            summary: String::new(),
+            original_name: name.into(),
+        }
+    }
+
+    #[test]
+    fn documents_are_found_by_hash_prefix_or_file_name() {
+        let rows = [
+            row("aa11", "Mietvertrag.pdf"),
+            row("bb22", "mietvertrag_alt.pdf"),
+        ];
+        assert_eq!(find_row(&rows, "bb").unwrap().hash, "bb22");
+        assert_eq!(find_row(&rows, "ALT").unwrap().hash, "bb22");
+        let err = find_row(&rows, "mietvertrag")
+            .map(|r| &r.hash)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("matches 2 documents"), "{err}");
+        assert!(find_row(&rows, "steuer").is_err());
     }
 
     #[test]

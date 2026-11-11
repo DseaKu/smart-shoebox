@@ -114,6 +114,7 @@ Order: 7.1 and 7.6 first, so the effect of 7.2–7.5 can be measured.
       Each chunk keeps its hash and page number (needed for the sources).
 - [x] Chunks are not stored: they are made from `store/<hash>.pages.json`
       when needed (`chunk::of_box`, which also lists documents without page text).
+- [x] `shoebox chunks [--show <doc>]` shows the cutting, to check it by eye.
 - [x] Checked on the test data: the fake documents give one chunk per page;
       the public law texts and US forms are cut into parts of at most 1,200 characters.
 - [ ] Later, if retrieval needs it: put the document's date and summary in
