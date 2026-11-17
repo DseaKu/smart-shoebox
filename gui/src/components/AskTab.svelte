@@ -12,7 +12,7 @@
   <form class="card ask" onsubmit={submit}>
     <input
       type="search"
-      placeholder="Ask about the content, e.g. Wie hoch ist die Kaltmiete?"
+      placeholder="Ask about the content, e.g. How much is the rent?"
       bind:value={app.askQuestion}
       disabled={!!app.busy}
       aria-label="Question"

@@ -24,7 +24,7 @@
   <form class="card ask" onsubmit={submit}>
     <input
       type="search"
-      placeholder="Ask in plain language, e.g. Wo ist mein Mietvertrag?"
+      placeholder="Ask in plain language, e.g. Where is my rental contract?"
       bind:value={app.question}
       disabled={!!app.busy}
       aria-label="Question"
