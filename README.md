@@ -27,17 +27,18 @@ _Demo with sample data. The documents and the answers are invented._
 flowchart TB
     subgraph in["Add"]
         direction LR
-        pile["PDFs and scans"] --> check{"check:<br/>text? pages<br/>complete?"}
-        check -- "no text" --> ocr["OCR<br/>(ocrmypdf)"] --> check
-        check -- "pages missing" --> complete["counterpart,<br/>merge, sort"] --> check
-        check -- "ok" --> name["readable<br/>name"] --> add["AI proposes date,<br/>tags, summary;<br/>I review (add)"]
+        pile["PDFs and scans"] --> read["read text<br/>(OCR if a page<br/>has none)"] --> check{"check:<br/>pages<br/>complete?"}
+        check -- "pages missing" --> complete["counterpart,<br/>merge, sort"]
+        check -- "ok" --> add["AI proposes date,<br/>tags, summary<br/>(+ name if unreadable);<br/>I review (add)"]
+        complete -- "complete" --> add
+        complete -- "cannot decide" --> you["left for me,<br/>with the reason"]
     end
     add --> index[("index.tsv<br/>plain text")]
     add --> store[("store/<br/>files named by SHA-256")]
     subgraph out["Get it back"]
         direction LR
         find["find:<br/>which document?"]
-        chunks["page text, chunks,<br/>embeddings + keywords"] --> ask["ask: AI answers<br/>with quotes"] --> verify{"quotes and numbers<br/>in the source?"}
+        chunks["page text, chunks,<br/>embeddings + keywords"] --> ask["ask: AI answers<br/>with quotes"] --> verify{"quotes and numbers<br/>in the source?<br/>verifier agrees?"}
         verify -- "yes" --> answer["answer + page + quote"]
         verify -- "no" --> notfound["Not found"]
     end
