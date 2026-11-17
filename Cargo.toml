@@ -2,7 +2,13 @@
 name = "smart-shoebox"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
 license = "MIT"
+description = "Local-first archive for private PDFs: OCR, AI-proposed names, tags and summaries, search and questions with a local model (Ollama)"
+repository = "https://github.com/DseaKu/smart-shoebox"
+readme = "README.md"
+keywords = ["pdf", "ocr", "ollama", "archive", "llm"]
+categories = ["command-line-utilities"]
 default-run = "shoebox"
 
 [dependencies]

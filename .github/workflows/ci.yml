@@ -1,0 +1,61 @@
+name: CI
+
+# Fast checks on every push: no AI, no Ollama, no private documents.
+on:
+  push:
+  pull_request:
+
+jobs:
+  cli:
+    name: CLI and library
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test
+
+  desktop:
+    name: Desktop app (Tauri + Svelte)
+    # The app targets macOS, so its backend is checked there.
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: gui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui/src-tauri
+
+      - name: Install
+        run: npm ci
+      - name: Svelte check
+        run: npm run check
+      - name: Build the front end
+        run: npm run build
+      - name: Format
+        working-directory: gui/src-tauri
+        run: cargo fmt --check
+      - name: Clippy
+        working-directory: gui/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        working-directory: gui/src-tauri
+        run: cargo test

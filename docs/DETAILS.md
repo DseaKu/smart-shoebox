@@ -360,8 +360,8 @@ open it the first time with right-click → Open.
 ## Privacy and backup
 
 - The index is sensitive too (it reveals contracts, taxes, insurance), so it is
-  gitignored like the PDFs. Only the code is ever pushed; still, keep the repo
-  **private**.
+  gitignored like the PDFs, in any folder. Only the code is ever pushed, so the
+  repository can be public. Never add a box or a PDF to it.
 - Sending the index or document text to a cloud AI exposes it to that provider.
   A local model is an option if that is a concern.
 - The box (`store/` and `index.tsv`) is **the only copy** of the documents and their

@@ -370,7 +370,9 @@ fn trash(paths: Vec<String>) -> Trashed {
     for path in paths {
         match trash::move_to_trash(Path::new(&path)) {
             Ok(_) => out.moved.push(path),
-            Err(e) => out.errors.push(format!("{}: {e}", file_name(Path::new(&path)))),
+            Err(e) => out
+                .errors
+                .push(format!("{}: {e}", file_name(Path::new(&path)))),
         }
     }
     out
@@ -462,7 +464,9 @@ async fn ask(state: State<'_, Shared>, question: String) -> CmdRes<Asked> {
     run_job(&state, move |ws, config, llm| async move {
         let searchable = Searchable::load(&ws)?;
         if searchable.chunks.is_empty() {
-            return Err("No page text to search yet (add documents, or run `shoebox text`).".into());
+            return Err(
+                "No page text to search yet (add documents, or run `shoebox text`).".into(),
+            );
         }
         let embedder = OllamaEmbedder::new(&config);
         let outcome = ask::answer(&ws, &llm, &embedder, &searchable, &question).await?;
@@ -574,7 +578,11 @@ fn wizard_summary(summary: &Summary) -> WizardSummary {
         .collect();
     WizardSummary {
         items,
-        spare_originals: summary.spare_originals().iter().map(|p| path_text(p)).collect(),
+        spare_originals: summary
+            .spare_originals()
+            .iter()
+            .map(|p| path_text(p))
+            .collect(),
     }
 }
 
@@ -737,7 +745,10 @@ fn rename_file(file: String, stem: String) -> CmdRes<Option<String>> {
     if stem.is_empty() {
         return Err("The name is empty.".into());
     }
-    if file.file_stem().is_some_and(|s| s.to_string_lossy() == stem) {
+    if file
+        .file_stem()
+        .is_some_and(|s| s.to_string_lossy() == stem)
+    {
         return Ok(None);
     }
     rename::apply(&file, &stem)
@@ -763,7 +774,10 @@ fn merge_files(files: Vec<String>) -> CmdRes<MergedView> {
         pages: merged.pages,
         expected: merged.expected,
         complete: merged.complete,
-        originals: merge::originals(&files).iter().map(|p| path_text(p)).collect(),
+        originals: merge::originals(&files)
+            .iter()
+            .map(|p| path_text(p))
+            .collect(),
     })
 }
 
@@ -845,7 +859,10 @@ fn sort_layout(plan: &SortPlan, order: &str) -> SortLayout {
     let duplicates = pages
         .iter()
         .filter(|p| !groups.iter().any(|g| g.pages.contains(&p.number)))
-        .filter_map(|p| p.duplicate_of.map(|o| format!("{} (same as {o})", p.number)))
+        .filter_map(|p| {
+            p.duplicate_of
+                .map(|o| format!("{} (same as {o})", p.number))
+        })
         .collect();
     SortLayout {
         error: edited.as_ref().err().cloned(),
@@ -918,14 +935,19 @@ fn write_sort(state: State<'_, Shared>, order: String, delete_blank: bool) -> Cm
     let mut slot = lock(&state.sort);
     let session = slot.as_ref().ok_or("Nothing to sort.")?;
     let groups = sort::parse_edit(&order, &session.plan.scan.pages)?;
-    let (out, count) =
-        sort::write(&session.plan, &groups, delete_blank).map_err(|e| format!("Not written: {e}"))?;
+    let (out, count) = sort::write(&session.plan, &groups, delete_blank)
+        .map_err(|e| format!("Not written: {e}"))?;
     let session = slot.take().expect("checked above");
     Ok(SortWritten {
         out: path_text(&out),
         count,
         input_name: file_name(&session.input),
-        originals: session.extra.originals.iter().map(|p| path_text(p)).collect(),
+        originals: session
+            .extra
+            .originals
+            .iter()
+            .map(|p| path_text(p))
+            .collect(),
         still: pages::join_numbers(&session.extra.still),
     })
 }
