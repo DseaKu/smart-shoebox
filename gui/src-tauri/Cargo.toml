@@ -1,0 +1,22 @@
+[package]
+name = "smart-shoebox-gui"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Desktop app for Smart Shoebox"
+publish = false
+
+[lib]
+name = "smart_shoebox_gui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+smart-shoebox = { path = "../.." }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt", "sync"] }

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#4f46e5"/>
+  <!-- papers sticking out of the box -->
+  <rect x="300" y="250" width="360" height="300" rx="22" fill="#eef0ff" transform="rotate(-7 480 400)"/>
+  <rect x="370" y="225" width="360" height="320" rx="22" fill="#ffffff" transform="rotate(5 550 385)"/>
+  <rect x="430" y="300" width="220" height="26" rx="13" fill="#c7c9f5" transform="rotate(5 550 385)"/>
+  <rect x="430" y="355" width="170" height="26" rx="13" fill="#c7c9f5" transform="rotate(5 550 385)"/>
+  <!-- the box -->
+  <path d="M210 470 H814 L776 800 A40 40 0 0 1 736 836 H288 A40 40 0 0 1 248 800 Z" fill="#ffffff"/>
+  <rect x="180" y="440" width="664" height="96" rx="30" fill="#e2e4ff"/>
+  <rect x="432" y="610" width="160" height="40" rx="20" fill="#4f46e5"/>
+</svg>
