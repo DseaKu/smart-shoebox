@@ -31,8 +31,8 @@ flowchart TB
         check -- "pages missing" --> complete["counterpart,<br/>merge, sort"] --> check
         check -- "ok" --> name["readable<br/>name"] --> add["AI proposes date,<br/>tags, summary;<br/>I review (add)"]
     end
-    add --> store[("store/<br/>files named by SHA-256")]
     add --> index[("index.tsv<br/>plain text")]
+    add --> store[("store/<br/>files named by SHA-256")]
     subgraph out["Get it back"]
         direction LR
         find["find:<br/>which document?"]
