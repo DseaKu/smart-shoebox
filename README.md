@@ -7,6 +7,10 @@
 > still change, so keep a backup before batch commands like `wizard` or `name -y`.
 > Built together with an AI coding assistant (Claude Code).
 
+![The desktop app: the wizard adds a pile of scans, then Find, Ask, Sort and Add](docs/demo.gif)
+
+*Demo with sample data. The documents and the answers are invented.*
+
 ## What it does
 
 `shoebox` is a small command-line tool (Rust) for private PDFs such as tax
@@ -29,7 +33,7 @@ they reveal private information.
 | `merge`, `sort`                   | working, page sorting still being tuned |
 | `check`, `counterpart`            | working, matching rules still being tuned |
 | `wizard`                          | new, least tested              |
-| `shoebox-gui` (macOS window)      | working, rough edges           |
+| `gui/` (desktop app)              | working, new                   |
 | `verify`, `add --move`            | planned, not built             |
 
 ## Quick start
@@ -76,13 +80,14 @@ shoebox add fronts_merged_sorted.pdf
 
 ## Window
 
-`shoebox-gui` is a small macOS window with the same functions as the commands
-(wizard, files, find, ask, add). It is built separately, so `cargo install` stays
-free of GUI libraries:
+`gui/` is a desktop app (Tauri 2, Svelte 5, TypeScript) with the same functions
+as the commands (wizard, files, find, ask, add). It is a separate crate, so
+`cargo install` stays free of GUI libraries. Needs Node.js:
 
 ```sh
-cargo build-gui               # target/release/shoebox-gui
-scripts/bundle-macos.sh       # Smart Shoebox.app
+cd gui && npm install
+npm run tauri dev                         # start it while developing
+npm run tauri build -- --bundles app      # Smart Shoebox.app
 ```
 
 ## Design

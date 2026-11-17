@@ -22,7 +22,7 @@
 | `merge`, `sort`                           | working, page sorting still being tuned |
 | `check`, `counterpart`                    | working, matching rules still being tuned |
 | `wizard`                                  | new, least tested                      |
-| `shoebox-gui` (macOS window)              | working, rough edges                   |
+| `gui/` (desktop app)                      | working, new                           |
 | `verify`, `add --move`                    | planned, not built                     |
 
 See [ROADMAP.md](../ROADMAP.md) for what comes next. Until it is marked stable,
@@ -294,15 +294,28 @@ merged into a document that is now in the box can be moved to the Trash at the e
 
 ### The window (optional)
 
-Besides the command line there is a small window, `shoebox-gui`. It is built
-separately, so a plain `cargo build` / `cargo install --path .` builds only the
-command-line tool, without the GUI libraries.
+Besides the command line there is a desktop app in `gui/`, built with Tauri 2
+(Rust) and Svelte 5 (TypeScript, Vite). `gui/src-tauri` is its own crate that
+depends on the library, so a plain `cargo build` / `cargo install --path .` builds
+only the command-line tool, without the GUI libraries. It needs Node.js.
 
 ```sh
-cargo run-gui                 # start it while developing
-cargo build-gui               # one program: target/release/shoebox-gui
-scripts/bundle-macos.sh       # Smart Shoebox.app, to double-click or drag into /Applications
+cd gui && npm install
+npm run tauri dev                         # start it while developing (hot reload)
+npm run tauri build -- --bundles app      # gui/src-tauri/target/release/bundle/macos/Smart Shoebox.app
+npm run check                             # type check of the Svelte/TypeScript code
 ```
+
+How it is built:
+
+- `gui/src-tauri/src/lib.rs`: the Tauri commands. They call the same library
+  functions as the commands. Slow jobs run one at a time, each on its own thread.
+  Results the window acts on later (a check, a sort plan, an add proposal) stay in
+  Rust; the window gets a small JSON view of them.
+- `gui/src/lib/app.svelte.ts`: the state of the window and its actions.
+- `gui/src/components/`: one component per tab, plus the shared parts.
+- `gui/icon-src/icon.svg`: the source of the app icons
+  (`npx tauri icon icon-src/icon.svg -o src-tauri/icons`).
 
 - **Wizard** (the first tab): drop PDFs or folders, press Start, and watch the log.
   At the end it lists what needs me (with **Open these in Files** to handle them
@@ -321,13 +334,13 @@ scripts/bundle-macos.sh       # Smart Shoebox.app, to double-click or drag into 
   source; otherwise "Not found" with the reason and the model's unchecked answer.
 - **Add**: review and edit the AI's proposal, then save.
 
-While a job runs, **Cancel** in the status bar (or Esc) stops it and drops the files
+While a job runs, **Cancel** in the bar under the header (or Esc) stops it and drops the files
 still waiting to be added. A request to the model stops at once; an OCR run that has
 already started finishes in the background, and its result is thrown away.
 
 Started from a terminal it uses the same box as `shoebox`. Started by a double
 click it uses the box chosen last time, or asks for one once (and offers to create
-it); the choice is remembered in `~/Library/Application Support/Smart Shoebox/`.
+it); **Change box** in the header picks another one; the choice is remembered in `~/Library/Application Support/Smart Shoebox/`.
 It uses the same code as the commands; there is no PDF preview inside the window.
 `ocrmypdf` and Ollama are still needed. The app is not signed: on another Mac,
 open it the first time with right-click → Open.
