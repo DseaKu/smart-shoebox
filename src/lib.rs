@@ -16,6 +16,7 @@ pub mod index;
 pub mod llm;
 pub mod merge;
 pub mod naming;
+pub mod ocr;
 pub mod pages;
 pub mod pagetext;
 pub mod pdf;

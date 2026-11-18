@@ -175,7 +175,7 @@ It skips my review, so wrong AI proposals go through unchecked.
 1. Compute the SHA-256 over the whole PDF file (all bytes, not the text or the
    filename).
 2. Extract the text of each page (`pdf-extract`; pages without text, as in a
-   scan, are OCR'd with `ocrmypdf` on a temporary copy. If that OCR fails but
+   scan, are read with the built-in OCR, see [OCR](#ocr). If that OCR fails but
    other pages have text, the document is added with a warning).
 3. Send the text to the AI together with the **list of existing tags**, with the
    instruction to reuse existing tags and only create a new one if none fit.
@@ -217,8 +217,8 @@ shoebox add fronts_merged_sorted.pdf
 `merge` only appends files. `sort` reorders pages; it never splits them, and
 the only pages it leaves out are duplicate scans:
 
-1. OCR pages without text (`ocrmypdf --skip-text`, which also straightens and
-   rotates upside-down pages). The result is built from this searchable copy.
+1. OCR pages without text (built-in, see [OCR](#ocr)); pages scanned sideways
+   or upside down are turned upright. The result is built from this copy.
 2. In code, without AI: detect blank pages, printed page numbers
    (`Seite 2 von 3`, `2 / 3`, `- 2 -`, …; references like "auf der Seite 3"
    are ignored) and duplicate scans (same printed number, ≥ 90 % of the words
@@ -340,10 +340,37 @@ already started finishes in the background, and its result is thrown away.
 
 Started from a terminal it uses the same box as `shoebox`. Started by a double
 click it uses the box chosen last time, or asks for one once (and offers to create
-it); **Change box** in the header picks another one; the choice is remembered in `~/Library/Application Support/Smart Shoebox/`.
+it); **Change box** in the header picks another one; the choice is remembered in the
+system's app data folder (macOS: `~/Library/Application Support/Smart Shoebox/`).
 It uses the same code as the commands; there is no PDF preview inside the window.
-`ocrmypdf` and Ollama are still needed. The app is not signed: on another Mac,
+Ollama is still needed. The app is not signed: on another Mac,
 open it the first time with right-click → Open.
+
+## OCR
+
+Scanned pages have no text, so the program reads them itself. No external OCR
+program is needed.
+
+- `hayro` (pure Rust) renders each page without text at 300 dpi; Tesseract 5
+  (compiled into the program by `kreuzberg-tesseract`) reads the text.
+- Languages: `ocr_language` in `shoebox.yaml` (`deu`, `deu+eng`, ...). German
+  and English are built in (Tesseract's "fast" models). For another language,
+  put its `<lang>.traineddata` from
+  [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) into the
+  `tessdata` folder next to the remembered box (macOS:
+  `~/Library/Application Support/Smart Shoebox/tessdata/`).
+- Orientation: if Tesseract is not confident about a page, the page is also
+  tried turned by 90°, 180° and 270° (on a half-size image, which is fast), and
+  the clearly best one wins. `sort`, `check` and `counterpart` build their
+  results from a copy with those pages turned upright.
+- The text goes into `store/<hash>.pages.json`; the stored PDF stays exactly as
+  it was added. There is no hidden text layer in the PDF (`ocrmypdf` used to add
+  one), so text in a stored scan cannot be selected in a PDF viewer. Find, Ask
+  and the AI use `pages.json` and do not need it.
+- Not done: straightening slightly crooked pages (deskew). Tesseract reads a few
+  degrees of skew well enough.
+- Building from source needs CMake and a C++ compiler; the first build downloads
+  and compiles Tesseract and Leptonica (a few minutes, cached afterwards).
 
 ## Design decisions
 

@@ -1,7 +1,7 @@
 # Smart Shoebox
 
 [![CI](https://github.com/DseaKu/smart-shoebox/actions/workflows/ci.yml/badge.svg)](https://github.com/DseaKu/smart-shoebox/actions/workflows/ci.yml)
-![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange)
+![Rust 1.92+](https://img.shields.io/badge/rust-1.92%2B-orange)
 ![Local AI: Ollama](<https://img.shields.io/badge/AI-local%20(Ollama)-blue>)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -56,12 +56,13 @@ flowchart LR
 
 ## Quick start
 
-All ways need [Ollama](https://ollama.com) and `ocrmypdf` (macOS:
-`brew install ollama ocrmypdf`).
+All ways need [Ollama](https://ollama.com). OCR for scans is built in.
+Building from source also needs CMake and a C++ compiler (macOS:
+`brew install cmake`, plus the Xcode command line tools).
 
 ### 1. Desktop app (recommended, macOS)
 
-1. Install: Rust 1.88+ and Node.js, then `cd gui && npm install`.
+1. Install: Rust 1.92+ and Node.js, then `cd gui && npm install`.
 2. Select the models: `ollama pull qwen3:8b` and `ollama pull bge-m3` (the
    defaults in [`shoebox.example.yaml`](shoebox.example.yaml)).
 3. Run: `npm run tauri dev`, or build the app with
@@ -126,7 +127,10 @@ yes to every prompt, so wrong AI proposals go through unchecked. Set
   source, but it cannot catch every wrong conclusion.
 - **Speed:** OCR and the model run on the laptop, so a large pile of scans takes
   a while.
-- **macOS first.** The desktop app and the OCR setup are tested on macOS only.
+- **macOS first.** The desktop app is tested on macOS only. CI builds and
+  tests it on Linux and Windows too.
+- **No text layer.** OCR text is stored next to the PDF, not inside it, so text
+  in a scanned PDF cannot be selected in a PDF viewer.
 - **Not a document management system.** No web interface, no sync, no multiple
   users. For that, see
   [paperless-ngx](https://github.com/paperless-ngx/paperless-ngx).
@@ -140,13 +144,14 @@ yes to every prompt, so wrong AI proposals go through unchecked. Set
 
 ## Built with
 
-| Part        | Library                                                                                                                                   | Purpose                                    |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| CLI         | [clap](https://crates.io/crates/clap)                                                                                                     | commands and options                       |
-| AI          | [ollama-rs](https://crates.io/crates/ollama-rs), [schemars](https://crates.io/crates/schemars)                                            | local model calls with JSON-schema replies |
-| PDF         | [lopdf](https://crates.io/crates/lopdf), [pdf-extract](https://crates.io/crates/pdf-extract), [ocrmypdf](https://ocrmypdf.readthedocs.io) | read, merge, reorder pages; page text; OCR |
-| Store       | [sha2](https://crates.io/crates/sha2)                                                                                                     | content hash as the file name              |
-| Desktop app | [Tauri 2](https://tauri.app), [Svelte 5](https://svelte.dev), TypeScript, Vite                                                            | window and UI                              |
+| Part        | Library                                                                                                                    | Purpose                                    |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| CLI         | [clap](https://crates.io/crates/clap)                                                                                      | commands and options                       |
+| AI          | [ollama-rs](https://crates.io/crates/ollama-rs), [schemars](https://crates.io/crates/schemars)                             | local model calls with JSON-schema replies |
+| PDF         | [lopdf](https://crates.io/crates/lopdf), [pdf-extract](https://crates.io/crates/pdf-extract)                               | read, merge, reorder pages; page text      |
+| OCR         | [hayro](https://crates.io/crates/hayro), [kreuzberg-tesseract](https://crates.io/crates/kreuzberg-tesseract) (Tesseract 5) | render scanned pages, read their text      |
+| Store       | [sha2](https://crates.io/crates/sha2)                                                                                      | content hash as the file name              |
+| Desktop app | [Tauri 2](https://tauri.app), [Svelte 5](https://svelte.dev), TypeScript, Vite                                             | window and UI                              |
 
 Written by hand: the scan checks (printed page numbers, counterpart matching,
 page order), the chunking, the BM25 keyword search and the hybrid ranking, and

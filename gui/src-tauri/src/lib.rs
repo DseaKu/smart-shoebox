@@ -1162,28 +1162,8 @@ fn is_iso_date(date: String) -> bool {
 
 // ---------------------------------------------------------------------------------------------
 
-/// Apps started from Finder get a minimal PATH without Homebrew, so `ocrmypdf`
-/// would not be found. Adds the usual Homebrew folders if they are missing.
-#[cfg(target_os = "macos")]
-fn add_tool_folders_to_path() {
-    let current = env::var_os("PATH").unwrap_or_default();
-    let mut paths: Vec<PathBuf> = env::split_paths(&current).collect();
-    for dir in ["/opt/homebrew/bin", "/usr/local/bin"] {
-        let dir = PathBuf::from(dir);
-        if dir.is_dir() && !paths.contains(&dir) {
-            paths.push(dir);
-        }
-    }
-    if let Ok(joined) = env::join_paths(paths) {
-        // SAFETY: called first thing in `run`, before any other thread exists.
-        unsafe { env::set_var("PATH", joined) };
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[cfg(target_os = "macos")]
-    add_tool_folders_to_path();
     let shared = Shared::default();
     find_box(&shared);
     tauri::Builder::default()

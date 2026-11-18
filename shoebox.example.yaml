@@ -8,6 +8,7 @@ model: qwen3:8b
 context_size: 16384
 
 # Tesseract language(s) for OCR of scanned PDFs, e.g. deu or deu+eng.
+# deu and eng are built in; for others see "OCR" in docs/DETAILS.md.
 ocr_language: deu
 
 # add: let a second AI call (the reviewer) check the first proposal against the

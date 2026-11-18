@@ -2,17 +2,20 @@
 //! Shared by `sort`, `check` and `counterpart`.
 
 use crate::{
-    Res,
+    Res, ocr,
     pages::{self, Page},
-    pdf::{self, TempFile},
+    pdf,
+    pdf::TempFile,
+    pdfdoc,
 };
 use std::path::{Path, PathBuf};
 
 pub struct Scan {
     pub pages: Vec<Page>,
     input: PathBuf,
-    /// The OCR'd copy, if OCR was needed. Deleted when the scan is dropped.
-    ocr_copy: Option<TempFile>,
+    /// A copy with the pages turned upright, if OCR found pages that are not.
+    /// Deleted when the scan is dropped.
+    upright_copy: Option<TempFile>,
 }
 
 impl Scan {
@@ -22,34 +25,36 @@ impl Scan {
         Self {
             pages,
             input: PathBuf::new(),
-            ocr_copy: None,
+            upright_copy: None,
         }
     }
 
-    /// Extracts the text of every page. If any page has no text, runs OCR on a
-    /// temporary copy (pages that already have text are left as they are).
+    /// Extracts the text of every page. Pages without text are read with OCR;
+    /// pages that already have text are left as they are.
     pub fn read(input: &Path, ocr_language: &str) -> Res<Self> {
         if !input.is_file() {
             return Err(format!("{} does not exist", input.display()).into());
         }
         let mut texts = pdf::text_by_pages(input)?;
-        let mut ocr_copy = None;
-        if texts.iter().any(|t| pages::is_blank(t)) {
-            let copy = TempFile::new("scan-ocr");
-            pdf::ocr(input, copy.path(), ocr_language, true)?;
-            texts = pdf::text_by_pages(copy.path())?;
-            ocr_copy = Some(copy);
+        let turns = ocr::fill_blank_pages(input, ocr_language, &mut texts)?;
+        let mut upright_copy = None;
+        if !turns.is_empty() {
+            let copy = TempFile::new("scan-upright");
+            pdfdoc::turn_pages(input, &turns, copy.path())?;
+            upright_copy = Some(copy);
         }
         Ok(Self {
             pages: pages::analyze(texts),
             input: input.to_path_buf(),
-            ocr_copy,
+            upright_copy,
         })
     }
 
-    /// The searchable, straightened version: the OCR'd copy if OCR ran, else the input.
-    /// Results are built from this, so they need no second OCR.
+    /// The version to build results from: the copy with the pages turned
+    /// upright if there is one, else the input.
     pub fn source(&self) -> &Path {
-        self.ocr_copy.as_ref().map_or(&self.input, TempFile::path)
+        self.upright_copy
+            .as_ref()
+            .map_or(&self.input, TempFile::path)
     }
 }

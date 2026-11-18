@@ -6,3 +6,4 @@
 *.gif binary
 *.ico binary
 *.icns binary
+*.traineddata binary
