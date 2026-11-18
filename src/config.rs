@@ -9,6 +9,7 @@ pub struct Config {
     #[serde(default = "default_context_size")]
     pub context_size: u64,
     /// Tesseract language(s) for OCR of scanned PDFs, e.g. "deu" or "deu+eng".
+    /// "deu" and "eng" are built in (see `ocr`).
     #[serde(default = "default_ocr_language")]
     pub ocr_language: String,
     /// `add`: let a second AI call check the first proposal against the text.

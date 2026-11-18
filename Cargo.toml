@@ -2,7 +2,7 @@
 name = "smart-shoebox"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.92"
 license = "MIT"
 description = "Local-first archive for private PDFs: OCR, AI-proposed names, tags and summaries, search and questions with a local model (Ollama)"
 repository = "https://github.com/DseaKu/smart-shoebox"
@@ -13,6 +13,9 @@ default-run = "shoebox"
 
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
+dirs = "7.0.0"
+hayro = "0.9.0"
+kreuzberg-tesseract = "4.10.4"
 lopdf = "0.42"
 ollama-rs = { version = "0.3.6", default-features = false }
 pdf-extract = "0.12.1"

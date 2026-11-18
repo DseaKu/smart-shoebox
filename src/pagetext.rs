@@ -4,7 +4,7 @@
 //!
 //! `shoebox text` fills it in for documents added before this file existed.
 
-use crate::{Res, config::Config, index, pages, pdf, pdf::TempFile, store, workspace::Workspace};
+use crate::{Res, config::Config, index, ocr, pages, pdf, store, workspace::Workspace};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -49,8 +49,8 @@ pub fn load(ws: &Workspace, hash: &str) -> Res<Option<Vec<String>>> {
 }
 
 /// Reads the text of each page. Pages without text (scanned pages, also in a
-/// PDF that is partly digital) are OCR'd on a temporary copy; the file itself is
-/// never changed. If OCR fails but other pages have text, those are kept with a
+/// PDF that is partly digital) are read with OCR; the file itself is never
+/// changed. If OCR fails but other pages have text, those are kept with a
 /// warning, so a document with one blank page can still be added without OCR.
 pub fn read_pdf(file: &Path, ocr_language: &str) -> Res<Vec<String>> {
     let texts = pdf::text_by_pages(file)?;
@@ -64,11 +64,9 @@ pub fn read_pdf(file: &Path, ocr_language: &str) -> Res<Vec<String>> {
             file.display()
         );
     }
-    let copy = TempFile::new("pages-ocr");
-    match pdf::ocr(file, copy.path(), ocr_language, true)
-        .and_then(|()| pdf::text_by_pages(copy.path()))
-    {
-        Ok(ocr_texts) if ocr_texts.iter().any(|t| !pages::is_blank(t)) => Ok(ocr_texts),
+    let mut ocr_texts = texts.clone();
+    match ocr::fill_blank_pages(file, ocr_language, &mut ocr_texts) {
+        Ok(_) if ocr_texts.iter().any(|t| !pages::is_blank(t)) => Ok(ocr_texts),
         Ok(_) if !has_text => Err(format!("OCR found no text in {}", file.display()).into()),
         Err(e) if !has_text => Err(e),
         Ok(_) => Ok(texts),

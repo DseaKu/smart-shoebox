@@ -27,12 +27,32 @@ pub fn merge(inputs: &[PathBuf], out: &Path) -> Res<()> {
     save(&mut merged, out)
 }
 
-/// Writes a new PDF with only the given pages of `src` (1-based), in exactly that order.
 /// Number of pages in a PDF.
 pub fn page_count(path: &Path) -> Res<usize> {
     Ok(load(path)?.get_pages().len())
 }
 
+/// Writes a copy of `src` in which the given pages (1-based) are turned clockwise
+/// by the given degrees, e.g. to put a page scanned upside down upright.
+pub fn turn_pages(src: &Path, turns: &[(usize, u16)], out: &Path) -> Res<()> {
+    let mut doc = load(src)?;
+    let all = doc.get_pages();
+    let ids: Vec<ObjectId> = all.values().copied().collect();
+    flatten_inherited(&mut doc, &ids)?;
+    for &(number, degrees) in turns {
+        let id = u32::try_from(number)
+            .ok()
+            .and_then(|n| all.get(&n))
+            .copied()
+            .ok_or_else(|| format!("page {number} does not exist in {}", src.display()))?;
+        let page = doc.get_dictionary_mut(id)?;
+        let current = page.get(b"Rotate").and_then(Object::as_i64).unwrap_or(0);
+        page.set("Rotate", (current + i64::from(degrees)).rem_euclid(360));
+    }
+    save(&mut doc, out)
+}
+
+/// Writes a new PDF with only the given pages of `src` (1-based), in exactly that order.
 pub fn extract_pages(src: &Path, page_numbers: &[u32], out: &Path) -> Res<()> {
     let mut doc = load(src)?;
     let all = doc.get_pages();
@@ -213,6 +233,23 @@ mod tests {
         }
 
         for p in [a, b, merged, out] {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+
+    #[test]
+    fn turns_pages_clockwise() {
+        let (src, out) = (temp("turn-src"), temp("turn-out"));
+        fixture(&src, &["Alpha", "Bravo"]);
+        turn_pages(&src, &[(2, 270)], &out).unwrap();
+        let doc = Document::load(&out).unwrap();
+        let rotate = |n: u32| {
+            let page = doc.get_dictionary(doc.get_pages()[&n]).unwrap();
+            page.get(b"Rotate").and_then(Object::as_i64).unwrap_or(0)
+        };
+        assert_eq!((rotate(1), rotate(2)), (0, 270));
+        assert_eq!(page_texts(&out), ["Alpha", "Bravo"]);
+        for p in [src, out] {
             let _ = std::fs::remove_file(p);
         }
     }
