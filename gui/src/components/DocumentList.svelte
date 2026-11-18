@@ -1,6 +1,7 @@
 <script lang="ts">
   // Documents of the box: date, summary, tags, and buttons to look at them.
   import { app } from "../lib/app.svelte";
+  import { REVEAL_LABEL } from "../lib/api";
   import type { Doc } from "../lib/types";
 
   let { docs }: { docs: Doc[] } = $props();
@@ -19,7 +20,7 @@
       </div>
       <div class="buttons">
         <button class="btn" onclick={() => app.open(doc.path)}>Open</button>
-        <button class="btn btn-ghost" onclick={() => app.open(doc.path, true)}>Show in Finder</button>
+        <button class="btn btn-ghost" onclick={() => app.open(doc.path, true)}>{REVEAL_LABEL}</button>
       </div>
     </li>
   {/each}

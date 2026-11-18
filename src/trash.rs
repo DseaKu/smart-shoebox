@@ -1,37 +1,27 @@
-//! "Deleting" originals by moving them to the macOS Trash, so they can still be restored.
+//! "Deleting" originals by moving them to the Trash (macOS, Linux) or the Recycle Bin
+//! (Windows), so they can still be restored.
 
 use crate::Res;
-use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Moves the file into `~/.Trash`, renaming it if a file of that name is already there.
-/// Refuses (instead of deleting for good) if there is no Trash folder.
-pub fn move_to_trash(path: &Path) -> Res<PathBuf> {
-    let trash = env::var_os("HOME")
-        .map(|home| PathBuf::from(home).join(".Trash"))
-        .filter(|dir| dir.is_dir())
-        .ok_or("no Trash folder (~/.Trash) found, so the file was kept")?;
-    let name = path
-        .file_name()
-        .ok_or_else(|| format!("{} is not a file", path.display()))?;
-    let mut dest = trash.join(name);
-    let stem = path
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let mut n = 2;
-    while dest.exists() {
-        dest = trash.join(format!("{stem} {n}.pdf"));
-        n += 1;
+/// Moves the file to the system's Trash. Refuses (instead of deleting for good)
+/// if the system has no Trash for it, for example on some network drives.
+pub fn move_to_trash(path: &Path) -> Res<()> {
+    if !path.is_file() {
+        return Err(format!("{} is not a file", path.display()).into());
     }
-    // A rename fails across drives (e.g. a file on a USB stick); copy and remove instead.
-    if fs::rename(path, &dest).is_err() {
-        fs::copy(path, &dest)
-            .map_err(|e| format!("cannot move {} to the Trash: {e}", path.display()))?;
-        fs::remove_file(path).map_err(|e| format!("cannot remove {}: {e}", path.display()))?;
+    #[allow(unused_mut)]
+    let mut context = ::trash::TrashContext::default();
+    // The Finder method asks for permission to control Finder and plays a sound;
+    // NSFileManager needs neither.
+    #[cfg(target_os = "macos")]
+    {
+        use ::trash::macos::{DeleteMethod, TrashContextExtMacos};
+        context.set_delete_method(DeleteMethod::NsFileManager);
     }
-    Ok(dest)
+    context
+        .delete(path)
+        .map_err(|e| format!("cannot move it to the Trash, so it was kept ({e})").into())
 }
 
 /// Asks once whether to move all `files` to the Trash, and does it.

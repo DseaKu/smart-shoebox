@@ -78,3 +78,10 @@ export function dirname(path: string) {
   const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   return i > 0 ? path.slice(0, i) : "";
 }
+
+/** The name of the button that shows a file in its folder, as the system calls it. */
+export const REVEAL_LABEL = navigator.userAgent.includes("Mac")
+  ? "Show in Finder"
+  : navigator.userAgent.includes("Windows")
+    ? "Show in Explorer"
+    : "Show in folder";

@@ -224,10 +224,10 @@ fn box_info(ws: &Workspace, config: &Config) -> BoxInfo {
     }
 }
 
-/// Where the last box is remembered: a one-line file next to other app data.
+/// Where the last box is remembered: a one-line file next to other app data
+/// (macOS: ~/Library/Application Support, Windows: %APPDATA%, Linux: ~/.local/share).
 fn memory_file() -> Option<PathBuf> {
-    let home = env::var_os("HOME")?;
-    Some(PathBuf::from(home).join("Library/Application Support/Smart Shoebox/box-path"))
+    Some(dirs::data_dir()?.join("Smart Shoebox/box-path"))
 }
 
 fn remembered() -> Option<Workspace> {
@@ -340,7 +340,7 @@ fn classify(paths: Vec<String>) -> Vec<PathKind> {
         .collect()
 }
 
-/// Opens the file in its default app (Preview for PDFs), or reveals it in Finder.
+/// Opens the file in its default app, or shows it in its folder (Finder, Explorer, …).
 #[tauri::command]
 fn open_file(path: String, reveal: bool) -> CmdRes<()> {
     let p = Path::new(&path);
@@ -1164,6 +1164,7 @@ fn is_iso_date(date: String) -> bool {
 
 /// Apps started from Finder get a minimal PATH without Homebrew, so `ocrmypdf`
 /// would not be found. Adds the usual Homebrew folders if they are missing.
+#[cfg(target_os = "macos")]
 fn add_tool_folders_to_path() {
     let current = env::var_os("PATH").unwrap_or_default();
     let mut paths: Vec<PathBuf> = env::split_paths(&current).collect();
@@ -1181,6 +1182,7 @@ fn add_tool_folders_to_path() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
     add_tool_folders_to_path();
     let shared = Shared::default();
     find_box(&shared);
