@@ -21,5 +21,8 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["macros", "rt", "sync"] }
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 dirs = "7.0.0"
+ollama-rs = { version = "0.3.6", default-features = false, features = ["stream"] }
+sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
+tokio-stream = "0.1"

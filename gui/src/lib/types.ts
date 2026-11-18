@@ -10,6 +10,37 @@ export interface BoxState {
   problem: string | null;
 }
 
+export type OllamaState = "missing" | "stopped" | "running";
+
+export interface ModelState {
+  name: string;
+  purpose: "answers" | "search";
+  installed: boolean;
+  /** The download size, if known ("5.2 GB"). */
+  size: string | null;
+}
+
+export interface SetupState {
+  ollama: OllamaState;
+  /** The models of the open box. */
+  models: ModelState[];
+  /** Installed memory in GB; 0 if unknown. */
+  ram_gb: number;
+  /** The model for answers that suits this computer. */
+  suggested: string;
+  choices: { name: string; size: string }[];
+  /** Ollama runs and every model of the box is downloaded. */
+  ready: boolean;
+}
+
+/** One `pull-progress` event while a model downloads. */
+export interface PullProgress {
+  model: string;
+  status: string;
+  completed: number;
+  total: number;
+}
+
 export interface PathKind {
   path: string;
   kind: "pdf" | "folder" | "other";

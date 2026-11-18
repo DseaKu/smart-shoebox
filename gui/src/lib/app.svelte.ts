@@ -12,6 +12,7 @@ import type {
   Doc,
   Entry,
   Proposal,
+  SetupState,
   SortLayout,
   SortView,
   WizardSummary,
@@ -51,6 +52,10 @@ export type Pane =
 class App {
   box = $state<BoxInfo | null>(null);
   boxProblem = $state<string | null>(null);
+  /** Ollama and the models of the box; `null` until checked. */
+  setup = $state<SetupState | null>(null);
+  /** I chose to use the app without the AI for now. */
+  setupSkipped = $state(false);
   tab = $state<Tab>("wizard");
   /** What the running job is doing. */
   busy = $state<string | null>(null);
@@ -82,6 +87,7 @@ class App {
   current = $state<{ proposal: Proposal; entry: Entry } | null>(null);
 
   selected = $derived(this.files.filter((f) => f.selected).map((f) => f.path));
+  needsSetup = $derived(this.setup !== null && !this.setup.ready && !this.setupSkipped);
   addCount = $derived(this.queue.length + (this.current ? 1 : 0));
 
   info(text: string) {
@@ -139,7 +145,13 @@ class App {
     if (!state) return;
     this.box = state.open;
     this.boxProblem = state.problem;
-    if (this.box) await this.reload();
+    if (this.box) await Promise.all([this.reload(), this.checkSetup()]);
+  }
+
+  /** Checks Ollama and the models of the open box. */
+  async checkSetup() {
+    const setup = await this.quick(api.setupState);
+    if (setup) this.setup = setup;
   }
 
   /** After switching boxes: nothing of the old box stays. */
@@ -154,7 +166,7 @@ class App {
     this.pane = { kind: "empty" };
     this.wizard = null;
     this.wizardLog = [];
-    await this.reload();
+    await Promise.all([this.reload(), this.checkSetup()]);
   }
 
   async reload() {

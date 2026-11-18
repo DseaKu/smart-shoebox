@@ -343,8 +343,27 @@ click it uses the box chosen last time, or asks for one once (and offers to crea
 it); **Change box** in the header picks another one; the choice is remembered in the
 system's app data folder (macOS: `~/Library/Application Support/Smart Shoebox/`).
 It uses the same code as the commands; there is no PDF preview inside the window.
-Ollama is still needed. The app is not signed: on another Mac,
-open it the first time with right-click → Open.
+The app is not signed: on another Mac, open it the first time with
+right-click → Open.
+
+**Setup screen.** After the box is open, the app checks the AI and shows a
+setup screen until it is ready:
+
+1. **Ollama.** If it is not found (the usual install places, then the PATH),
+   **Get Ollama** opens the official download page, and the screen checks again
+   every 3 seconds, so it continues by itself after the install. If Ollama is
+   installed but stopped, **Start Ollama** starts it (macOS: the Ollama app,
+   Windows: `ollama app.exe`, otherwise `ollama serve`).
+2. **Models.** A choice of `qwen3:4b`, `qwen3:8b` and `qwen3:14b`, with the one
+   that fits the computer's memory marked as suggested (from 12 GB: 8b, from
+   32 GB: 14b). **Download** writes the choice into `shoebox.yaml` and pulls the
+   missing models through Ollama's API, with a progress bar. A cancelled
+   download continues where it stopped.
+
+**Skip for now** opens the app without the AI; **AI not ready** in the header
+brings the screen back. Cloud models (`…:cloud`) are refused in
+`shoebox.yaml`, by the command line too, because they would send the documents
+to Ollama's servers.
 
 ## OCR
 

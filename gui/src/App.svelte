@@ -5,6 +5,7 @@
   import { app, type Tab } from "./lib/app.svelte";
   import Logo from "./components/Logo.svelte";
   import BoxChooser from "./components/BoxChooser.svelte";
+  import SetupScreen from "./components/SetupScreen.svelte";
   import BusyBar from "./components/BusyBar.svelte";
   import WizardTab from "./components/WizardTab.svelte";
   import FilesTab from "./components/FilesTab.svelte";
@@ -37,7 +38,7 @@
       }),
       getCurrentWebview().onDragDropEvent((e) => {
         const p = e.payload;
-        if (!app.box || choosing) return;
+        if (!app.box || choosing || app.needsSetup) return;
         if (p.type === "enter" || p.type === "over") dragging = true;
         else if (p.type === "leave") dragging = false;
         else if (p.type === "drop") {
@@ -59,7 +60,7 @@
       <Logo busy={!!app.busy} />
       <h1>Smart Shoebox</h1>
     </div>
-    {#if app.box && !choosing}
+    {#if app.box && !choosing && !app.needsSetup}
       <nav aria-label="Sections">
         {#each tabs as tab (tab.id)}
           <button class="tab" class:active={app.tab === tab.id} onclick={() => (app.tab = tab.id)}>
@@ -70,7 +71,13 @@
       </nav>
       <div class="where">
         <span class="muted small path" title={app.box.root}><bdi>{app.box.root}</bdi></span>
-        <span class="chip small">{app.box.model}</span>
+        {#if app.setup && !app.setup.ready}
+          <button class="btn btn-ghost mid-text" onclick={() => (app.setupSkipped = false)} disabled={!!app.busy}>
+            AI not ready
+          </button>
+        {:else}
+          <span class="chip small">{app.box.model}</span>
+        {/if}
         <button class="btn btn-ghost" onclick={() => (choosing = true)} disabled={!!app.busy}>Change box</button>
       </div>
     {/if}
@@ -80,6 +87,8 @@
     <main></main>
   {:else if !app.box || choosing}
     <BoxChooser problem={app.boxProblem} onCancel={app.box ? () => (choosing = false) : null} onOpened={() => (choosing = false)} />
+  {:else if app.needsSetup && app.setup}
+    <SetupScreen setup={app.setup} />
   {:else}
     {#if app.busy}
       <BusyBar what={app.busy} onCancel={() => app.cancel()} />

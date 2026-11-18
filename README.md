@@ -63,12 +63,13 @@ Building from source also needs CMake and a C++ compiler (macOS:
 ### 1. Desktop app (recommended, macOS)
 
 1. Install: Rust 1.92+ and Node.js, then `cd gui && npm install`.
-2. Select the models: `ollama pull qwen3:8b` and `ollama pull bge-m3` (the
-   defaults in [`shoebox.example.yaml`](shoebox.example.yaml)).
-3. Run: `npm run tauri dev`, or build the app with
+2. Run: `npm run tauri dev`, or build the app with
    `npm run tauri build -- --bundles app`.
-4. Prepare the box: on the first start, the app asks for a folder and creates
+3. Prepare the box: on the first start, the app asks for a folder and creates
    the box there.
+4. Set up the AI: the setup screen finds and starts Ollama (or opens its
+   download page), suggests a model for the computer's memory and downloads
+   the models with a progress bar.
 5. Drop PDFs or a folder of scans on the **Wizard** tab and click **Start**.
 
 **Done:** the documents are in the box. Use **Find** and **Ask** to get them
