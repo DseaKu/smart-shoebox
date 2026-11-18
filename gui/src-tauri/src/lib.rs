@@ -43,6 +43,8 @@ use smart_shoebox::{
     workspace::Workspace,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
+
+mod setup;
 use tokio::sync::{oneshot, watch};
 
 type CmdRes<T> = Result<T, String>;
@@ -301,6 +303,44 @@ fn open_box(state: State<'_, Shared>, path: String) -> CmdRes<Option<BoxInfo>> {
 #[tauri::command]
 fn create_box(state: State<'_, Shared>, path: String) -> CmdRes<BoxInfo> {
     let ws = Workspace::init(Path::new(&path)).map_err(text)?;
+    use_box(&state, ws)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Setup: Ollama and the models
+
+#[tauri::command]
+async fn setup_state(state: State<'_, Shared>) -> CmdRes<setup::SetupState> {
+    let (_, config) = state.current()?;
+    Ok(setup::state(&config).await)
+}
+
+/// Opens Ollama's official download page in the browser.
+#[tauri::command]
+fn open_ollama_download() -> CmdRes<()> {
+    tauri_plugin_opener::open_url(setup::DOWNLOAD_PAGE, None::<&str>).map_err(text)
+}
+
+#[tauri::command]
+async fn start_ollama() -> CmdRes<()> {
+    setup::start().await.map_err(text)
+}
+
+/// Downloads one model; the progress comes as `pull-progress` events. A job,
+/// so it can be cancelled.
+#[tauri::command]
+async fn pull_model(app: AppHandle, state: State<'_, Shared>, model: String) -> CmdRes<()> {
+    run_job(&state, move |_, _, _| async move {
+        setup::pull(&app, &model).await
+    })
+    .await
+}
+
+/// Changes the box's model for answers in its `shoebox.yaml`.
+#[tauri::command]
+fn set_model(state: State<'_, Shared>, model: String) -> CmdRes<BoxInfo> {
+    let (ws, _) = state.current()?;
+    config::set_model(&ws.config_path(), &model).map_err(text)?;
     use_box(&state, ws)
 }
 
@@ -1175,6 +1215,11 @@ pub fn run() {
             box_state,
             open_box,
             create_box,
+            setup_state,
+            open_ollama_download,
+            start_ollama,
+            pull_model,
+            set_model,
             classify,
             open_file,
             trash,

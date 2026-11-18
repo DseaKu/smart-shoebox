@@ -14,6 +14,7 @@ import type {
   NameView,
   PathKind,
   Prepared,
+  SetupState,
   SortLayout,
   SortView,
   SortWritten,
@@ -31,6 +32,13 @@ export const boxState = () => invoke<BoxState>("box_state");
 /** `null` if the folder holds no box. */
 export const openBox = (path: string) => invoke<BoxInfo | null>("open_box", { path });
 export const createBox = (path: string) => invoke<BoxInfo>("create_box", { path });
+
+// Setup: Ollama and the models
+export const setupState = () => invoke<SetupState>("setup_state");
+export const openOllamaDownload = () => invoke<void>("open_ollama_download");
+export const startOllama = () => invoke<void>("start_ollama");
+export const pullModel = (model: string) => invoke<void>("pull_model", { model });
+export const setModel = (model: string) => invoke<BoxInfo>("set_model", { model });
 
 // Files
 export const classify = (paths: string[]) => invoke<PathKind[]>("classify", { paths });
