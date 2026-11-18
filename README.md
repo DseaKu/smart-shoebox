@@ -24,7 +24,7 @@ _Demo with sample data. The documents and the answers are invented._
 ### How it works
 
 ```mermaid
-flowchart TB
+flowchart LR
     subgraph in["Add"]
         direction LR
         pile["PDFs and scans"] --> read["read text<br/>(OCR if a page<br/>has none)"] --> check{"check:<br/>pages<br/>complete?"}
