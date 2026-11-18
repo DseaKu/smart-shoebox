@@ -1,6 +1,7 @@
 <script lang="ts">
   // Answers from the text inside the documents, with the source pages and checked quotes.
   import { app } from "../lib/app.svelte";
+  import { REVEAL_LABEL } from "../lib/api";
 
   function submit(e: SubmitEvent) {
     e.preventDefault();
@@ -43,7 +44,7 @@
             </div>
             <div class="buttons">
               <button class="btn" onclick={() => app.open(source.path)}>Open</button>
-              <button class="btn btn-ghost" onclick={() => app.open(source.path, true)}>Show in Finder</button>
+              <button class="btn btn-ghost" onclick={() => app.open(source.path, true)}>{REVEAL_LABEL}</button>
             </div>
           </div>
         {/each}

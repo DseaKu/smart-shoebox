@@ -4,7 +4,7 @@ use crate::{
     pages::{self, Page},
     sort::{self, Group},
 };
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -175,7 +175,7 @@ pub fn confirm(mut entry: Entry) -> Res<Option<Entry>> {
 /// Only for a real terminal; piped input (scripts, tests) is kept.
 fn discard_typeahead() {
     #[cfg(unix)]
-    if io::stdin().is_terminal() {
+    if std::io::IsTerminal::is_terminal(&io::stdin()) {
         // SAFETY: tcflush only drops pending input on the stdin file descriptor.
         unsafe {
             libc::tcflush(libc::STDIN_FILENO, libc::TCIFLUSH);

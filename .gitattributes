@@ -1,0 +1,8 @@
+# The same line endings on every system, so `cargo fmt --check` and the tests
+# give the same result on Windows.
+* text=auto eol=lf
+*.pdf binary
+*.png binary
+*.gif binary
+*.ico binary
+*.icns binary
